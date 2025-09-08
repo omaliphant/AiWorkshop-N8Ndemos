@@ -231,9 +231,10 @@ curl http://localhost:5678
 
 ### Data Protection
 - ✅ All processing happens locally
-- ✅ No external API calls
-- ✅ Data encrypted at rest (Docker volumes)
-- ✅ OAuth2 for Google Drive access
+- ✅ No external API calls or cloud services
+- ✅ Direct file system access only
+- ✅ Data never leaves your network
+- ✅ Works within existing file permissions
 
 ### Best Practices
 1. **Access Control**: Implement user authentication for production
@@ -288,6 +289,8 @@ By the end of this workshop, participants will be able to:
 ### 🚀 Oz' AI Workshop Series
 
 This workshop is part of Oz' AI Workshop Series, bringing practical AI implementations to enterprise environments. 
+
+**Next Workshop**: Advanced N8N Automations with Multi-Agent Systems
 
 ---
 

@@ -1,11 +1,13 @@
-# N8N RAG Workshop - Docker Container Setup Script
+# N8N RAG Workshop - Docker Container Setup Script (Local Drive Version)
 # Run after installing prerequisites
+# This version works with local/mapped drives instead of Google Drive
 
 param(
-    [string]$WorkshopPath = "C:\Dev\Workshop",
+    [string]$WorkshopPath = "c:\dev\workshop",
     [string]$ChromaDBPort = "8000",
     [string]$N8NPort = "5678",
-    [switch]$RemoveExisting = $false
+    [switch]$RemoveExisting = $false,
+    [string]$LocalDrivePath = "G:\"  # Default to G: drive
 )
 
 # Set error action preference
@@ -20,13 +22,28 @@ function Write-Error { Write-Host $args[0] -ForegroundColor Red }
 # ASCII Banner
 Write-Host @"
 ╔══════════════════════════════════════════════════════════════╗
-║           N8N RAG Workshop - Container Setup                 ║
+║      Oz' AI Workshop - Container Setup (Local Drive)         ║
 ║                 ChromaDB & N8N Deployment                    ║
 ╚══════════════════════════════════════════════════════════════╝
 "@ -ForegroundColor Cyan
 
+# Check if local drive path exists
+Write-Info "[1/6] Checking local drive access..."
+if (Test-Path $LocalDrivePath) {
+    $fileCount = (Get-ChildItem -Path $LocalDrivePath -Recurse -File -Include *.pdf,*.docx,*.txt,*.md -ErrorAction SilentlyContinue | Measure-Object).Count
+    Write-Success "✓ Access to $LocalDrivePath confirmed"
+    Write-Info "  Found $fileCount potential documents to index"
+} else {
+    Write-Alert "⚠ Cannot access $LocalDrivePath"
+    Write-Alert "  You can configure this later in the N8N workflow"
+    $response = Read-Host "  Continue anyway? (y/n)"
+    if ($response -ne 'y') {
+        exit 1
+    }
+}
+
 # Check if Docker is running
-Write-Info "[1/5] Checking Docker status..."
+Write-Info "`n[2/6] Checking Docker status..."
 try {
     docker ps 2>$null | Out-Null
     Write-Success "✓ Docker is running"
@@ -56,13 +73,14 @@ try {
 }
 
 # Create necessary directories
-Write-Info "`n[2/5] Creating data directories..."
+Write-Info "`n[3/6] Creating data directories..."
 
 $directories = @(
     "$WorkshopPath\chromadb\data",
     "$WorkshopPath\n8n\data",
     "$WorkshopPath\n8n\files",
-    "$WorkshopPath\test"
+    "$WorkshopPath\test",
+    "$WorkshopPath\logs"
 )
 
 foreach ($dir in $directories) {
@@ -76,7 +94,7 @@ foreach ($dir in $directories) {
 
 # Handle existing containers
 if ($RemoveExisting) {
-    Write-Info "`n[3/5] Removing existing containers..."
+    Write-Info "`n[4/6] Removing existing containers..."
     
     $containers = @("chromadb", "n8n")
     foreach ($container in $containers) {
@@ -93,7 +111,7 @@ if ($RemoveExisting) {
         }
     }
 } else {
-    Write-Info "`n[3/5] Checking for existing containers..."
+    Write-Info "`n[4/6] Checking for existing containers..."
     
     $existingContainers = @()
     $containers = @("chromadb", "n8n")
@@ -125,7 +143,7 @@ if ($RemoveExisting) {
 }
 
 # Setup ChromaDB
-Write-Info "`n[4/5] Setting up ChromaDB..."
+Write-Info "`n[5/6] Setting up ChromaDB..."
 
 try {
     # Check if ChromaDB is already running
@@ -139,13 +157,13 @@ try {
         
         Write-Info "  Starting ChromaDB container..."
         $chromaCommand = @"
-docker run -d `
-  --name chromadb `
-  -p ${ChromaDBPort}:8000 `
-  -v "${WorkshopPath}\chromadb\data:/chroma/chroma" `
-  -e IS_PERSISTENT=TRUE `
-  -e ANONYMIZED_TELEMETRY=FALSE `
-  --restart unless-stopped `
+docker run -d ``
+  --name chromadb ``
+  -p ${ChromaDBPort}:8000 ``
+  -v "${WorkshopPath}\chromadb\data:/chroma/chroma" ``
+  -e IS_PERSISTENT=TRUE ``
+  -e ANONYMIZED_TELEMETRY=FALSE ``
+  --restart unless-stopped ``
   chromadb/chroma:latest
 "@
         
@@ -168,7 +186,7 @@ docker run -d `
 }
 
 # Setup N8N
-Write-Info "`n[5/5] Setting up N8N..."
+Write-Info "`n[6/6] Setting up N8N..."
 
 try {
     # Check if N8N is already running
@@ -181,19 +199,21 @@ try {
         docker pull n8nio/n8n:latest
         
         Write-Info "  Starting N8N container..."
+        # Note: We're mounting the local drive for file access
         $n8nCommand = @"
-docker run -d `
-  --name n8n `
-  -p ${N8NPort}:5678 `
-  -v "${WorkshopPath}\n8n\data:/home/node/.n8n" `
-  -v "${WorkshopPath}\n8n\files:/files" `
-  -e N8N_SECURE_COOKIE=false `
-  -e N8N_HOST=localhost `
-  -e N8N_PORT=5678 `
-  -e N8N_PROTOCOL=http `
-  -e WEBHOOK_URL=http://localhost:5678/ `
-  -e N8N_METRICS=false `
-  --restart unless-stopped `
+docker run -d ``
+  --name n8n ``
+  -p ${N8NPort}:5678 ``
+  -v "${WorkshopPath}\n8n\data:/home/node/.n8n" ``
+  -v "${WorkshopPath}\n8n\files:/files" ``
+  -v "${LocalDrivePath}:/data/local-drive:ro" ``
+  -e N8N_SECURE_COOKIE=false ``
+  -e N8N_HOST=localhost ``
+  -e N8N_PORT=5678 ``
+  -e N8N_PROTOCOL=http ``
+  -e WEBHOOK_URL=http://localhost:5678/ ``
+  -e N8N_METRICS=false ``
+  --restart unless-stopped ``
   n8nio/n8n:latest
 "@
         
@@ -207,6 +227,7 @@ docker run -d `
             $response = Invoke-WebRequest -Uri "http://localhost:$N8NPort" -UseBasicParsing -ErrorAction SilentlyContinue
             if ($response.StatusCode -eq 200) {
                 Write-Success "  ✓ N8N is running on port $N8NPort"
+                Write-Info "  ✓ Local drive mounted at /data/local-drive in container"
             }
         } catch {
             Write-Alert "  → N8N may still be starting up (this can take up to 30 seconds)"
@@ -217,204 +238,81 @@ docker run -d `
     exit 1
 }
 
-# Create test HTML file
+# Create test HTML file (Local Drive version)
 Write-Info "`nCreating test interface..."
 
-$testHtml = @'
+$testHtml = Get-Content -Raw -LiteralPath "$PSScriptRoot\qa-interface-local.html" -ErrorAction SilentlyContinue
+
+if (-not $testHtml) {
+    # If template file doesn't exist, create a basic one
+    $testHtml = @'
 <!DOCTYPE html>
 <html>
 <head>
-    <title>GDrive Q&A Test Interface</title>
+    <title>Local Drive Q&A Test Interface</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            font-family: Arial, sans-serif; 
+            max-width: 800px; 
+            margin: 50px auto; 
             padding: 20px;
         }
         .container {
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            padding: 40px;
-            max-width: 800px;
-            width: 100%;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
         }
-        h1 {
-            color: #333;
-            margin-bottom: 10px;
-            font-size: 2em;
-        }
-        .subtitle {
-            color: #666;
-            margin-bottom: 30px;
-            font-size: 0.9em;
-        }
-        .input-group {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 30px;
-        }
+        h1 { color: #333; }
         input[type="text"] {
-            flex: 1;
-            padding: 15px;
+            width: 70%;
+            padding: 10px;
             font-size: 16px;
-            border: 2px solid #e0e0e0;
-            border-radius: 10px;
-            transition: border-color 0.3s;
-        }
-        input[type="text"]:focus {
-            outline: none;
-            border-color: #667eea;
         }
         button {
-            padding: 15px 30px;
+            padding: 10px 20px;
             font-size: 16px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background-color: #4CAF50;
             color: white;
             border: none;
-            border-radius: 10px;
+            border-radius: 4px;
             cursor: pointer;
-            transition: transform 0.2s;
         }
         button:hover {
-            transform: translateY(-2px);
-        }
-        button:active {
-            transform: translateY(0);
+            background-color: #45a049;
         }
         #response {
-            margin-top: 30px;
-            padding: 20px;
-            background-color: #f8f9fa;
-            border-radius: 10px;
-            min-height: 100px;
-            display: none;
-        }
-        #response.show {
-            display: block;
-        }
-        .answer-section {
-            margin-bottom: 20px;
-        }
-        .answer-label {
-            font-weight: bold;
-            color: #667eea;
-            margin-bottom: 10px;
-        }
-        .answer-text {
-            color: #333;
-            line-height: 1.6;
-        }
-        .source {
-            margin-top: 10px;
+            margin-top: 20px;
             padding: 15px;
-            background: white;
-            border-left: 4px solid #667eea;
-            border-radius: 5px;
-        }
-        .source-title {
-            font-weight: bold;
-            color: #333;
-            margin-bottom: 5px;
-        }
-        .source-link {
-            color: #667eea;
-            text-decoration: none;
-        }
-        .source-link:hover {
-            text-decoration: underline;
-        }
-        .loading {
-            text-align: center;
-            color: #666;
-        }
-        .loading::after {
-            content: '';
-            animation: dots 1.5s steps(4, end) infinite;
-        }
-        @keyframes dots {
-            0%, 20% { content: ''; }
-            40% { content: '.'; }
-            60% { content: '..'; }
-            80%, 100% { content: '...'; }
-        }
-        .error {
-            background: #fee;
-            border-left: 4px solid #f44336;
-            color: #c00;
-            padding: 15px;
-            border-radius: 5px;
-        }
-        .status {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: bold;
-        }
-        .status.online {
-            background: #4caf50;
-            color: white;
-        }
-        .status.offline {
-            background: #f44336;
-            color: white;
+            background-color: #f5f5f5;
+            border-radius: 4px;
         }
     </style>
 </head>
 <body>
-    <div class="status offline" id="status">Checking...</div>
     <div class="container">
-        <h1>🤖 Google Drive Q&A System</h1>
-        <div class="subtitle">Ask questions about your company documents</div>
-        
-        <div class="input-group">
-            <input type="text" id="question" placeholder="What would you like to know about your documents?">
-            <button onclick="askQuestion()">Ask Question</button>
+        <h1>Local Drive Q&A System</h1>
+        <p>Ask questions about documents in your local/mapped drives</p>
+        <div>
+            <input type="text" id="question" placeholder="Ask a question about your documents...">
+            <button onclick="askQuestion()">Ask</button>
         </div>
-        
         <div id="response"></div>
     </div>
 
     <script>
-        // Check webhook status
-        async function checkStatus() {
-            try {
-                const response = await fetch('http://localhost:5678/webhook/gdrive-qa', {
-                    method: 'OPTIONS'
-                });
-                document.getElementById('status').className = 'status online';
-                document.getElementById('status').textContent = '● Online';
-            } catch {
-                document.getElementById('status').className = 'status offline';
-                document.getElementById('status').textContent = '● Offline';
-            }
-        }
-        
-        checkStatus();
-        setInterval(checkStatus, 30000); // Check every 30 seconds
-        
         async function askQuestion() {
             const question = document.getElementById('question').value;
             const responseDiv = document.getElementById('response');
             
-            if (!question.trim()) {
+            if (!question) {
                 alert('Please enter a question');
                 return;
             }
             
-            responseDiv.className = 'show';
-            responseDiv.innerHTML = '<div class="loading">Processing your question</div>';
+            responseDiv.innerHTML = 'Processing...';
             
             try {
-                const response = await fetch('http://localhost:5678/webhook/gdrive-qa', {
+                const response = await fetch('http://localhost:5678/webhook/local-qa', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -422,113 +320,51 @@ $testHtml = @'
                     body: JSON.stringify({ question: question })
                 });
                 
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                
                 const data = await response.json();
                 
-                let html = '<div class="answer-section">';
-                html += '<div class="answer-label">Question:</div>';
-                html += `<div class="answer-text">${data.question}</div>`;
-                html += '</div>';
-                
-                html += '<div class="answer-section">';
-                html += '<div class="answer-label">Answer:</div>';
-                html += `<div class="answer-text">${data.answer}</div>`;
-                html += '</div>';
+                let html = '<strong>Question:</strong> ' + data.question + '<br><br>';
+                html += '<strong>Answer:</strong> ' + data.answer + '<br><br>';
                 
                 if (data.sources && data.sources.length > 0) {
-                    html += '<div class="answer-section">';
-                    html += '<div class="answer-label">Sources:</div>';
-                    data.sources.forEach((source, index) => {
-                        html += `<div class="source">
-                            <div class="source-title">📄 ${source.document}</div>
-                            <div>Relevance: ${source.relevance_score}</div>
-                            <a href="${source.link}" target="_blank" class="source-link">View Document →</a>
-                        </div>`;
+                    html += '<strong>Sources:</strong><ul>';
+                    data.sources.forEach(source => {
+                        html += '<li>' + source.document + ' (Relevance: ' + source.relevance_score + ')</li>';
                     });
-                    html += '</div>';
+                    html += '</ul>';
                 }
                 
                 responseDiv.innerHTML = html;
             } catch (error) {
-                responseDiv.innerHTML = `<div class="error">
-                    <strong>Error:</strong> ${error.message}<br>
-                    <small>Make sure the N8N webhook is active and properly configured.</small>
-                </div>`;
+                responseDiv.innerHTML = 'Error: ' + error.message;
             }
         }
-        
-        // Allow Enter key to submit
-        document.getElementById('question').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                askQuestion();
-            }
-        });
     </script>
 </body>
 </html>
 '@
+}
 
-$testHtmlPath = "$WorkshopPath\test\qa-interface.html"
+$testHtmlPath = "$WorkshopPath\test\qa-interface-local.html"
 $testHtml | Out-File -FilePath $testHtmlPath -Encoding UTF8
 Write-Success "✓ Created test interface: $testHtmlPath"
 
-# Create docker management script
-Write-Info "Creating Docker management script..."
+# Create configuration file
+Write-Info "Creating configuration file..."
 
-$dockerScript = @'
-# Docker Container Management Script
-param(
-    [Parameter(Mandatory=$true)]
-    [ValidateSet("start", "stop", "restart", "status", "logs")]
-    [string]$Action,
-    
-    [ValidateSet("all", "chromadb", "n8n")]
-    [string]$Container = "all"
-)
-
-function Write-Info { Write-Host $args[0] -ForegroundColor Cyan }
-function Write-Success { Write-Host $args[0] -ForegroundColor Green }
-
-$containers = if ($Container -eq "all") { @("chromadb", "n8n") } else { @($Container) }
-
-switch ($Action) {
-    "start" {
-        foreach ($c in $containers) {
-            Write-Info "Starting $c..."
-            docker start $c
-        }
-    }
-    "stop" {
-        foreach ($c in $containers) {
-            Write-Info "Stopping $c..."
-            docker stop $c
-        }
-    }
-    "restart" {
-        foreach ($c in $containers) {
-            Write-Info "Restarting $c..."
-            docker restart $c
-        }
-    }
-    "status" {
-        Write-Info "Container Status:"
-        docker ps -a --filter "name=chromadb" --filter "name=n8n" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-    }
-    "logs" {
-        foreach ($c in $containers) {
-            Write-Info "Logs for $c (last 20 lines):"
-            docker logs --tail 20 $c
-        }
-    }
+$config = @{
+    workshop = "Oz' AI Workshop - 9 Sept 2025"
+    setup_date = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    workshop_path = $WorkshopPath
+    local_drive = $LocalDrivePath
+    chromadb_port = $ChromaDBPort
+    n8n_port = $N8NPort
+    webhook_url = "http://localhost:$N8NPort/webhook/local-qa"
+    test_interface = $testHtmlPath
 }
-'@
 
-$dockerScriptPath = "$WorkshopPath\scripts\manage-containers.ps1"
-$dockerScript | Out-File -FilePath $dockerScriptPath -Encoding UTF8
-Write-Success "✓ Created management script: $dockerScriptPath"
+$configPath = "$WorkshopPath\workshop-config.json"
+$config | ConvertTo-Json -Depth 10 | Out-File -FilePath $configPath -Encoding UTF8
+Write-Success "✓ Configuration saved to: $configPath"
 
 # Verification
 Write-Info "`nVerifying container setup..."
@@ -587,12 +423,13 @@ Write-Host "╚═════════════════════�
 
 Write-Info @"
 
-🎉 Your N8N RAG Workshop environment is ready!
+🎉 Your Local Drive RAG Workshop environment is ready!
 
 📍 Access Points:
    • N8N Interface: http://localhost:$N8NPort
    • ChromaDB API: http://localhost:$ChromaDBPort
    • Test Interface: file:///$testHtmlPath
+   • Local Drive Path: $LocalDrivePath
 
 📁 Data Directories:
    • ChromaDB Data: $WorkshopPath\chromadb\data
@@ -607,16 +444,19 @@ Write-Info @"
 
 📝 Next Steps:
    1. Open N8N at http://localhost:$N8NPort
-   2. Import the workflow templates
-   3. Configure Google Drive OAuth
-   4. Run the initialization workflow
+   2. Import workflow templates from \n8n-templates\
+      - initialize-chromadb-local.json (run once)
+      - document-indexer-local.json
+      - qa-system-local.json
+   3. Configure local drive path in indexer workflow
+   4. Run indexing workflow
    5. Test with the Q&A interface
 
-💡 Workshop Tips:
-   • Keep Docker Desktop running during the workshop
-   • Use 'ollama serve' if Ollama stops responding
-   • Check container logs if issues occur
-   • The test interface will show connection status
+💡 Workshop Notes:
+   • No Google authentication needed!
+   • Works with any local or mapped drive
+   • Configure path in N8N workflow: '$LocalDrivePath'
+   • All processing stays local
 
 "@
 

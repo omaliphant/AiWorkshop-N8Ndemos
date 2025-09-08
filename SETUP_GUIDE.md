@@ -447,7 +447,15 @@ curl -X POST http://localhost:8000/api/v1/collections -H "Content-Type: applicat
 **Q: Where are the workshop materials?**
 - Scripts: `/scripts/` directory
 - N8N Templates: `/n8n-templates/` directory
+  - `document-indexer-local.json` - Indexes local files
+  - `qa-system-local.json` - Q&A webhook
+  - `initialize-chromadb-local.json` - Setup database
 - Test Interface: Created in `c:\dev\workshop\test\`
+
+**Q: Do I need Google Drive access?**
+- No! This version works with local or mapped drives
+- Just point to your G: drive or any local folder
+- No authentication or API keys required
 
 **Q: What if I miss the workshop?**
 - All materials are in the GitLab repository
