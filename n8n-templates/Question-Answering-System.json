@@ -1,0 +1,118 @@
+{
+  "name": "GDrive Q&A System",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gdrive-qa",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "position": [250, 300],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract and validate question\nconst question = $input.item.json.body.question;\n\nif (!question || question.trim().length === 0) {\n  throw new Error('Question is required');\n}\n\n// Clean and prepare question\nconst cleanedQuestion = question.trim();\n\n// Add query expansion for better retrieval\nconst expandedQuery = `${cleanedQuestion} ${cleanedQuestion.toLowerCase().replace(/[^a-z0-9\\s]/g, '')}`;\n\nreturn {\n  original_question: cleanedQuestion,\n  expanded_query: expandedQuery,\n  timestamp: new Date().toISOString(),\n  session_id: $input.item.json.body.session_id || 'default'\n};"
+      },
+      "name": "Process Question",
+      "type": "n8n-nodes-base.function",
+      "position": [450, 300],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:11434/api/embeddings",
+        "options": {
+          "bodyContentType": "json"
+        },
+        "bodyParametersJson": "{\n  \"model\": \"nomic-embed-text\",\n  \"prompt\": \"={{$json.expanded_query}}\"\n}"
+      },
+      "name": "Embed Question",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [650, 300],
+      "typeVersion": 3
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/v1/collections/company_docs/query",
+        "options": {
+          "bodyContentType": "json"
+        },
+        "bodyParametersJson": "{\n  \"query_embeddings\": [{{$json.embedding}}],\n  \"n_results\": 5,\n  \"include\": [\"documents\", \"metadatas\", \"distances\"]\n}"
+      },
+      "name": "Search ChromaDB",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [850, 300],
+      "typeVersion": 3
+    },
+    {
+      "parameters": {
+        "functionCode": "// Process search results and build context\nconst results = $input.item.json;\nconst question = $input.item.json.original_question;\n\nif (!results.documents || results.documents[0].length === 0) {\n  return {\n    context: 'No relevant documents found.',\n    sources: [],\n    question: question\n  };\n}\n\n// Build context from top results\nconst documents = results.documents[0];\nconst metadatas = results.metadatas[0];\nconst distances = results.distances[0];\n\n// Create context with source tracking\nlet context = '';\nconst sources = [];\n\nfor (let i = 0; i < documents.length; i++) {\n  // Only include highly relevant results (distance < 0.7)\n  if (distances[i] < 0.7) {\n    context += `[Document ${i+1} - ${metadatas[i].source_file}]:\\n${documents[i]}\\n\\n`;\n    \n    sources.push({\n      file: metadatas[i].source_file,\n      link: metadatas[i].web_link,\n      relevance: 1 - distances[i]\n    });\n  }\n}\n\nreturn {\n  context: context || 'No highly relevant information found.',\n  sources: sources,\n  question: question,\n  num_sources: sources.length\n};"
+      },
+      "name": "Build Context",
+      "type": "n8n-nodes-base.function",
+      "position": [1050, 300],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:11434/api/generate",
+        "options": {
+          "bodyContentType": "json",
+          "timeout": 30000
+        },
+        "bodyParametersJson": "{\n  \"model\": \"llama3.2:3b\",\n  \"prompt\": \"You are a helpful assistant that answers questions about company documents. Use ONLY the provided context to answer questions. If the answer is not in the context, say 'I cannot find this information in the available documents.'\\n\\nContext from company documents:\\n{{$json.context}}\\n\\nQuestion: {{$json.question}}\\n\\nInstructions:\\n1. Answer based ONLY on the provided context\\n2. Be specific and cite which document you're using\\n3. If multiple documents contain relevant info, synthesize them\\n4. Keep answers clear and concise\\n5. If you're unsure, say so\\n\\nAnswer:\",\n  \"stream\": false,\n  \"options\": {\n    \"temperature\": 0.3,\n    \"top_p\": 0.9,\n    \"max_tokens\": 500\n  }\n}"
+      },
+      "name": "Generate Answer",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1250, 300],
+      "typeVersion": 3
+    },
+    {
+      "parameters": {
+        "functionCode": "// Format final response\nconst answer = $input.item.json.response;\nconst sources = $input.item.json.sources;\nconst question = $input.item.json.question;\n\n// Build response object\nconst response = {\n  success: true,\n  question: question,\n  answer: answer,\n  sources: sources.map(s => ({\n    document: s.file,\n    link: s.link,\n    relevance_score: Math.round(s.relevance * 100) + '%'\n  })),\n  metadata: {\n    timestamp: new Date().toISOString(),\n    model: 'llama3.2:3b',\n    num_sources_used: sources.length\n  }\n};\n\nreturn response;"
+      },
+      "name": "Format Response",
+      "type": "n8n-nodes-base.function",
+      "position": [1450, 300],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [1650, 300],
+      "typeVersion": 1
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{"node": "Process Question"}]]
+    },
+    "Process Question": {
+      "main": [[{"node": "Embed Question"}]]
+    },
+    "Embed Question": {
+      "main": [[{"node": "Search ChromaDB"}]]
+    },
+    "Search ChromaDB": {
+      "main": [[{"node": "Build Context"}]]
+    },
+    "Build Context": {
+      "main": [[{"node": "Generate Answer"}]]
+    },
+    "Generate Answer": {
+      "main": [[{"node": "Format Response"}]]
+    },
+    "Format Response": {
+      "main": [[{"node": "Webhook Response"}]]
+    }
+  }
+}

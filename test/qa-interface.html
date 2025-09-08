@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>GDrive Q&A Test</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            max-width: 800px; 
+            margin: 50px auto; 
+            padding: 20px;
+        }
+        .container {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        input[type="text"] {
+            width: 70%;
+            padding: 10px;
+            font-size: 16px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #response {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f5f5f5;
+            border-radius: 4px;
+            white-space: pre-wrap;
+        }
+        .source {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #e8f4f8;
+            border-left: 3px solid #2196F3;
+        }
+        .loading {
+            color: #666;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Google Drive Q&A System</h1>
+        <div>
+            <input type="text" id="question" placeholder="Ask a question about your documents...">
+            <button onclick="askQuestion()">Ask</button>
+        </div>
+        <div id="response"></div>
+    </div>
+
+    <script>
+        async function askQuestion() {
+            const question = document.getElementById('question').value;
+            const responseDiv = document.getElementById('response');
+            
+            if (!question) {
+                alert('Please enter a question');
+                return;
+            }
+            
+            responseDiv.innerHTML = '<div class="loading">Processing your question...</div>';
+            
+            try {
+                const response = await fetch('http://localhost:5678/webhook/gdrive-qa', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ question: question })
+                });
+                
+                const data = await response.json();
+                
+                let html = `<strong>Question:</strong> ${data.question}<br><br>`;
+                html += `<strong>Answer:</strong> ${data.answer}<br><br>`;
+                
+                if (data.sources && data.sources.length > 0) {
+                    html += '<strong>Sources:</strong>';
+                    data.sources.forEach(source => {
+                        html += `<div class="source">
+                            📄 ${source.document}<br>
+                            Relevance: ${source.relevance_score}<br>
+                            <a href="${source.link}" target="_blank">View Document</a>
+                        </div>`;
+                    });
+                }
+                
+                responseDiv.innerHTML = html;
+            } catch (error) {
+                responseDiv.innerHTML = `<div style="color: red;">Error: ${error.message}</div>`;
+            }
+        }
+        
+        // Allow Enter key to submit
+        document.getElementById('question').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                askQuestion();
+            }
+        });
+    </script>
+</body>
+</html>

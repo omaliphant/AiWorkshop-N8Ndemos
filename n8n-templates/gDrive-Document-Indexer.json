@@ -1,0 +1,139 @@
+{
+  "name": "GDrive Document Indexer",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [250, 300],
+      "typeVersion": 1.1
+    },
+    {
+      "parameters": {
+        "operation": "list",
+        "queryString": "mimeType != 'application/vnd.google-apps.folder' and (mimeType = 'application/pdf' or mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' or mimeType = 'text/plain' or mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')",
+        "filter": {
+          "folderId": "={{$json.folder_id}}",
+          "whatToSearch": "allDrives"
+        },
+        "options": {
+          "fields": "files(id,name,mimeType,modifiedTime,webViewLink,parents)"
+        },
+        "limit": 50
+      },
+      "name": "List Drive Files",
+      "type": "n8n-nodes-base.googleDrive",
+      "position": [450, 300],
+      "typeVersion": 2,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "1",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": "={{$json.id}}"
+      },
+      "name": "Download File",
+      "type": "n8n-nodes-base.googleDrive",
+      "position": [650, 300],
+      "typeVersion": 2,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "1",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract text based on file type\nconst fileName = $input.item.json.name;\nconst fileContent = $input.item.binary.data;\nconst mimeType = $input.item.json.mimeType;\n\nlet textContent = '';\n\n// Simple text extraction (enhance with proper libraries in production)\nif (mimeType === 'text/plain') {\n  textContent = Buffer.from(fileContent.data, 'base64').toString('utf-8');\n} else if (mimeType === 'application/pdf') {\n  // For PDF, you'd need pdf-parse or similar\n  // For workshop, assume text extraction is handled\n  textContent = Buffer.from(fileContent.data, 'base64').toString('utf-8');\n} else {\n  // For other formats, implement extraction\n  textContent = Buffer.from(fileContent.data, 'base64').toString('utf-8');\n}\n\n// Clean text\ntextContent = textContent.replace(/\\s+/g, ' ').trim();\n\nreturn {\n  fileName: fileName,\n  fileId: $input.item.json.id,\n  mimeType: mimeType,\n  modifiedTime: $input.item.json.modifiedTime,\n  webViewLink: $input.item.json.webViewLink,\n  textContent: textContent,\n  contentLength: textContent.length\n};"
+      },
+      "name": "Extract Text",
+      "type": "n8n-nodes-base.function",
+      "position": [850, 300],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "functionCode": "// Chunk text into smaller segments with overlap\nconst text = $input.item.json.textContent;\nconst fileName = $input.item.json.fileName;\nconst fileId = $input.item.json.fileId;\nconst webViewLink = $input.item.json.webViewLink;\n\nconst CHUNK_SIZE = 1000; // characters\nconst CHUNK_OVERLAP = 200;\n\nfunction createChunks(text, chunkSize, overlap) {\n  const chunks = [];\n  let start = 0;\n  \n  while (start < text.length) {\n    const end = Math.min(start + chunkSize, text.length);\n    const chunk = text.slice(start, end);\n    \n    chunks.push({\n      text: chunk,\n      start_char: start,\n      end_char: end,\n      chunk_index: chunks.length\n    });\n    \n    start += chunkSize - overlap;\n    \n    if (end === text.length) break;\n  }\n  \n  return chunks;\n}\n\nconst chunks = createChunks(text, CHUNK_SIZE, CHUNK_OVERLAP);\n\n// Return array of chunk objects\nreturn chunks.map(chunk => ({\n  json: {\n    chunk_text: chunk.text,\n    chunk_index: chunk.chunk_index,\n    total_chunks: chunks.length,\n    metadata: {\n      source_file: fileName,\n      file_id: fileId,\n      web_link: webViewLink,\n      chunk_start: chunk.start_char,\n      chunk_end: chunk.end_char,\n      indexed_at: new Date().toISOString()\n    }\n  }\n}));"
+      },
+      "name": "Chunk Text",
+      "type": "n8n-nodes-base.function",
+      "position": [1050, 300],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:11434/api/embeddings",
+        "options": {
+          "bodyContentType": "json"
+        },
+        "bodyParametersJson": "{\n  \"model\": \"nomic-embed-text\",\n  \"prompt\": \"={{$json.chunk_text}}\"\n}"
+      },
+      "name": "Generate Embeddings",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1250, 300],
+      "typeVersion": 3
+    },
+    {
+      "parameters": {
+        "functionCode": "// Prepare data for ChromaDB\nconst embedding = $input.item.json.embedding;\nconst metadata = $input.item.json.metadata;\nconst chunkText = $input.item.json.chunk_text;\nconst chunkId = `${metadata.file_id}_chunk_${$input.item.json.chunk_index}`;\n\nreturn {\n  id: chunkId,\n  embedding: embedding,\n  document: chunkText,\n  metadata: metadata\n};"
+      },
+      "name": "Prepare for ChromaDB",
+      "type": "n8n-nodes-base.function",
+      "position": [1450, 300],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/v1/collections/company_docs/add",
+        "options": {
+          "bodyContentType": "json"
+        },
+        "bodyParametersJson": "{\n  \"ids\": [\"={{$json.id}}\"],\n  \"embeddings\": [{{$json.embedding}}],\n  \"documents\": [\"={{$json.document}}\"],\n  \"metadatas\": [{{JSON.stringify($json.metadata)}}]\n}"
+      },
+      "name": "Store in ChromaDB",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1650, 300],
+      "typeVersion": 3
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [[{"node": "List Drive Files"}]]
+    },
+    "List Drive Files": {
+      "main": [[{"node": "Download File"}]]
+    },
+    "Download File": {
+      "main": [[{"node": "Extract Text"}]]
+    },
+    "Extract Text": {
+      "main": [[{"node": "Chunk Text"}]]
+    },
+    "Chunk Text": {
+      "main": [[{"node": "Generate Embeddings"}]]
+    },
+    "Generate Embeddings": {
+      "main": [[{"node": "Prepare for ChromaDB"}]]
+    },
+    "Prepare for ChromaDB": {
+      "main": [[{"node": "Store in ChromaDB"}]]
+    }
+  }
+}

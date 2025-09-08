@@ -1,0 +1,47 @@
+{
+  "name": "Initialize ChromaDB Collection",
+  "nodes": [
+    {
+      "parameters": {},
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "position": [250, 300],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "http://localhost:8000/api/v1/collections/company_docs",
+        "options": {
+          "ignoreResponseCode": true
+        }
+      },
+      "name": "Delete Existing Collection",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [450, 300],
+      "typeVersion": 3
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/v1/collections",
+        "options": {
+          "bodyContentType": "json"
+        },
+        "bodyParametersJson": "{\n  \"name\": \"company_docs\",\n  \"metadata\": {\n    \"description\": \"Company Google Drive documents\",\n    \"created_at\": \"{{new Date().toISOString()}}\"\n  }\n}"
+      },
+      "name": "Create Collection",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [650, 300],
+      "typeVersion": 3
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [[{"node": "Delete Existing Collection"}]]
+    },
+    "Delete Existing Collection": {
+      "main": [[{"node": "Create Collection"}]]
+    }
+  }
+}
