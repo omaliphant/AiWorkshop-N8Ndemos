@@ -2,7 +2,7 @@
 # Run after installing prerequisites
 
 param(
-    [string]$WorkshopPath = "C:\Workshop",
+    [string]$WorkshopPath = "C:\Dev\Workshop",
     [string]$ChromaDBPort = "8000",
     [string]$N8NPort = "5678",
     [switch]$RemoveExisting = $false

@@ -2,7 +2,7 @@
 # Run as Administrator
 
 param(
-    [string]$InstallPath = "C:\Workshop",
+    [string]$InstallPath = "C:\Dev\Workshop",
     [switch]$SkipOllama = $false,
     [switch]$SkipDocker = $false
 )
