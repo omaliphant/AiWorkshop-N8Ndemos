@@ -27,10 +27,9 @@ Write-Host "================================================================" -F
 
 # Check if local drive path exists
 Write-Info "[1/6] Checking local drive access..."
+# Just a simple existence check - instant!
 if (Test-Path $LocalDrivePath) {
-    $fileCount = (Get-ChildItem -Path $LocalDrivePath -Recurse -File -Include *.pdf,*.docx,*.txt,*.md -ErrorAction SilentlyContinue | Measure-Object).Count
-    Write-Success "[OK] Access to $LocalDrivePath confirmed"
-    Write-Info "  Found $fileCount potential documents to index"
+    Write-Success "  [OK] Path exists and is accessible"
 } else {
     Write-Alert "[!] Cannot access $LocalDrivePath"
     Write-Alert "  You can configure this later in the N8N workflow"
