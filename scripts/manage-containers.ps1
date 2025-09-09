@@ -10,7 +10,7 @@ param(
     [ValidateSet("all", "chromadb", "n8n")]
     [string]$Container = "all",
     
-    [string]$WorkshopPath = "C:\Dev\Workshop",
+    [string]$WorkshopPath = "C:\dev\workshop",
     
     [int]$LogLines = 50
 )
@@ -20,35 +20,33 @@ $ErrorActionPreference = "Stop"
 
 # Color output functions
 function Write-Success { 
-    Write-Host "✓ " -ForegroundColor Green -NoNewline
+    Write-Host "[OK] " -ForegroundColor Green -NoNewline
     Write-Host $args[0] -ForegroundColor Green 
 }
 
 function Write-Info { 
-    Write-Host "ℹ " -ForegroundColor Cyan -NoNewline
+    Write-Host "[i] " -ForegroundColor Cyan -NoNewline
     Write-Host $args[0] -ForegroundColor Cyan 
 }
 
 function Write-Alert { 
-    Write-Host "⚠ " -ForegroundColor Yellow -NoNewline
+    Write-Host "[!] " -ForegroundColor Yellow -NoNewline
     Write-Host $args[0] -ForegroundColor Yellow 
 }
 
 function Write-Error { 
-    Write-Host "✗ " -ForegroundColor Red -NoNewline
+    Write-Host "[X] " -ForegroundColor Red -NoNewline
     Write-Host $args[0] -ForegroundColor Red 
 }
 
 # ASCII Banner
 function Show-Banner {
-    Write-Host @"
-
-╔══════════════════════════════════════════════════════════════╗
-║           Oz' AI Workshop - Container Manager                ║
-║                  N8N RAG Demo - Sept 2025                    ║
-╚══════════════════════════════════════════════════════════════╝
-
-"@ -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "================================================================" -ForegroundColor Cyan
+    Write-Host "           Oz' AI Workshop - Container Manager                " -ForegroundColor Cyan
+    Write-Host "                  N8N RAG Demo - Sept 2025                    " -ForegroundColor Cyan
+    Write-Host "================================================================" -ForegroundColor Cyan
+    Write-Host ""
 }
 
 # Check if Docker is running
@@ -218,7 +216,6 @@ function Show-Status {
     # Check Ollama
     try {
         $ollamaResponse = Invoke-RestMethod -Uri "http://localhost:11434/api/tags" -Method Get -ErrorAction SilentlyContinue
-        Write-Debug $ollamaResponse | Out-Null
         Write-Success "Ollama API: http://localhost:11434 (Running)"
     } catch {
         Write-Alert "Ollama API: http://localhost:11434 (Not responding)"
@@ -228,7 +225,6 @@ function Show-Status {
     if ((Get-ContainerStatus -ContainerName "chromadb") -eq "running") {
         try {
             $chromaResponse = Invoke-RestMethod -Uri "http://localhost:8000/api/v1/heartbeat" -Method Get -ErrorAction SilentlyContinue
-            Write-Debug $chromaResponse | Out-Null
             Write-Success "ChromaDB API: http://localhost:8000 (Healthy)"
         } catch {
             Write-Alert "ChromaDB API: http://localhost:8000 (Container running but API not responding)"
