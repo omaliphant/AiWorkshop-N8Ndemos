@@ -1,98 +1,258 @@
 {
-  "name": "G: Drive Document Indexer (Simplified HTTP)",
+  "name": "Document-Indexer",
   "nodes": [
     {
       "parameters": {},
-      "id": "manual-trigger",
+      "id": "ba9f1893-8b72-4615-b844-d9983395d2af",
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
-      "position": [220, 300],
+      "position": [
+        416,
+        -224
+      ],
       "typeVersion": 1
     },
     {
       "parameters": {
-        "command": "find /data/gdrive -type f \\( -name '*.txt' -o -name '*.md' -o -name '*.doc' -o -name '*.docx' -o -name '*.pdf' \\) -printf '%p|%s|%TY-%Tm-%Td %TH:%TM:%TS\\n' 2>/dev/null | head -100"
+        "command": "for file in /files/*.pdf /files/*.txt /files/*.md; do if [ -f \"$file\" ]; then echo \"FILE:$file\"; head -c 30000 \"$file\" | strings | head -c 5000; echo \"ENDFILE\"; fi; done"
       },
-      "id": "list-files",
-      "name": "List Files in G: Drive",
+      "id": "30d21a61-c712-41f6-8310-c1b98fce1472",
+      "name": "Read Files",
       "type": "n8n-nodes-base.executeCommand",
-      "position": [420, 300],
-      "typeVersion": 1,
-      "notes": "Scans /data/gdrive for documents. Adjust 'head -100' to change file limit."
+      "position": [
+        624,
+        -224
+      ],
+      "typeVersion": 1
     },
     {
       "parameters": {
-        "jsCode": "// Parse the file list from the command output\nconst commandOutput = $input.first().json.stdout;\n\nif (!commandOutput || commandOutput.trim() === '') {\n  return [{\n    json: {\n      error: 'No files found in /data/gdrive',\n      suggestion: 'Check if G: drive is properly mounted to /data/gdrive'\n    }\n  }];\n}\n\n// Parse the file list\nconst files = [];\nconst lines = commandOutput.trim().split('\\n');\n\nfor (const line of lines) {\n  if (!line) continue;\n  \n  const parts = line.split('|');\n  if (parts.length >= 3) {\n    const filepath = parts[0];\n    const size = parseInt(parts[1]);\n    const modified = parts[2].split('.')[0]; // Remove decimal seconds\n    \n    // Get filename and extension\n    const filename = filepath.split('/').pop();\n    const extension = '.' + filename.split('.').pop().toLowerCase();\n    \n    // Skip files larger than 5MB\n    if (size > 5 * 1024 * 1024) {\n      console.log(`Skipping large file: ${filename} (${(size / 1024 / 1024).toFixed(2)} MB)`);\n      continue;\n    }\n    \n    files.push({\n      filepath: filepath,\n      filename: filename,\n      extension: extension,\n      size: size,\n      sizeMB: (size / 1024 / 1024).toFixed(2),\n      modified: modified,\n      displayPath: filepath.replace('/data/gdrive', 'G:')\n    });\n  }\n}\n\nconsole.log(`Found ${files.length} files to process`);\n\n// Return each file as a separate item for parallel processing\nreturn files.map(file => ({ json: file }));"
+        "jsCode": "// Parse files and create chunks only\nconst output = $input.first().json.stdout || '';\n\nif (!output || !output.includes('FILE:')) {\n  return [{\n    json: {\n      status: 'no_files',\n      message: 'No files found in /files/'\n    }\n  }];\n}\n\nconst CHUNK_SIZE = 500;\nconst CHUNK_OVERLAP = 100;\n\n// Parse files\nconst parts = output.split('FILE:');\nlet totalChunks = 0;\nlet processedFiles = [];\n\n// Process each file and output chunks individually\nconst allItems = [];\n\nfor (const part of parts) {\n  if (!part || !part.includes('ENDFILE')) continue;\n  \n  const lines = part.split('\\n');\n  const filepath = lines[0].trim();\n  const endIndex = part.indexOf('ENDFILE');\n  const content = part.substring(filepath.length + 1, endIndex).trim();\n  \n  if (filepath && content && content.length > 50) {\n    const filename = filepath.split('/').pop();\n    processedFiles.push(filename);\n    \n    // Clean content\n    const cleanContent = content\n      .replace(/[\\r\\n]+/g, ' ')\n      .replace(/\\s+/g, ' ')\n      .trim();\n    \n    // Create chunks\n    let start = 0;\n    let chunkIndex = 0;\n    \n    while (start < cleanContent.length && chunkIndex < 10) {\n      const end = Math.min(start + CHUNK_SIZE, cleanContent.length);\n      const chunkText = cleanContent.slice(start, end);\n      \n      if (chunkText.length >= 50) {\n        allItems.push({\n          json: {\n            chunk_id: `${filename.replace(/[^a-zA-Z0-9]/g, '_')}_${chunkIndex}`,\n            chunk_text: chunkText,\n            source_file: filename,\n            file_path: filepath,\n            chunk_index: chunkIndex\n          }\n        });\n        totalChunks++;\n        chunkIndex++;\n      }\n      \n      start += CHUNK_SIZE - CHUNK_OVERLAP;\n    }\n  }\n}\n\nconsole.log(`Created ${totalChunks} chunks from ${processedFiles.length} files`);\n\nif (allItems.length === 0) {\n  return [{\n    json: {\n      status: 'no_content',\n      message: 'No readable content found in files'\n    }\n  }];\n}\n\n// Return all chunks as individual items\nreturn allItems;"
       },
-      "id": "parse-file-list",
-      "name": "Parse File List",
+      "id": "213fc656-81ea-4b2a-a1e0-a84b232ca75b",
+      "name": "Create Chunks",
       "type": "n8n-nodes-base.code",
-      "position": [620, 300],
+      "position": [
+        816,
+        -224
+      ],
       "typeVersion": 2
     },
     {
       "parameters": {
-        "command": "=cat \"{{ $json.filepath }}\" | head -c 100000"
+        "batchSize": 5,
+        "options": {}
       },
-      "id": "read-file-content",
-      "name": "Read File Content",
-      "type": "n8n-nodes-base.executeCommand",
-      "position": [820, 300],
-      "typeVersion": 1,
-      "notes": "Reads up to 100KB of each file",
+      "id": "21ff6e2d-fec9-46c3-bbef-fc910f617662",
+      "name": "Batch Chunks",
+      "type": "n8n-nodes-base.splitInBatches",
+      "position": [
+        1024,
+        -224
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:11434/api/embeddings",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "nomic-embed-text"
+            },
+            {
+              "name": "prompt",
+              "value": "={{$json.chunk_text}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "0f1dbda8-bfa8-4846-8bea-c9977d0c60ff",
+      "name": "Generate Embedding",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        1216,
+        -544
+      ],
+      "typeVersion": 3,
+      "notes": "Uses HTTP node for Ollama (no header issues with Ollama)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare ChromaDB payload for this batch\nconst items = $input.all();\n\n// Extract data from all items in this batch\nconst ids = [];\nconst documents = [];\nconst metadatas = [];\nconst embeddings = [];\n\nfor (const item of items) {\n  ids.push(item.json.chunk_id);\n  documents.push(item.json.chunk_text);\n  metadatas.push({\n    source_file: item.json.source_file,\n    file_path: item.json.file_path,\n    chunk_index: item.json.chunk_index\n  });\n  \n  // Get embedding from the response\n  if (item.json.embedding) {\n    embeddings.push(item.json.embedding);\n  } else {\n    // Fallback if embedding is missing\n    console.log('Warning: No embedding for chunk', item.json.chunk_id);\n    embeddings.push(new Array(768).fill(0));\n  }\n}\n\nconsole.log(`Prepared batch with ${ids.length} chunks`);\n\n// Return the prepared payload\nreturn [{\n  json: {\n    ids: ids,\n    documents: documents,\n    metadatas: metadatas,\n    embeddings: embeddings\n  }\n}];"
+      },
+      "id": "06fb9051-1d52-4425-901a-9dec838b301c",
+      "name": "Prepare Batch",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        1408,
+        -544
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://chromadb:8000/api/v1/collections/local_docs/add",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "2de3e4af-0ebf-4858-87dc-75f36099db59",
+      "name": "Store in ChromaDB",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        1584,
+        -544
+      ],
+      "typeVersion": 4.1,
       "continueOnFail": true
     },
     {
       "parameters": {
-        "jsCode": "// Process all files and create chunks with embeddings\nconst items = $input.all();\nconst CHUNK_SIZE = 500;\nconst CHUNK_OVERLAP = 100;\n\n// Import axios for HTTP requests\nconst axios = require('axios');\n\nconst processedFiles = [];\nconst skippedFiles = [];\nconst errors = [];\nconst allBatches = [];\n\n// Process each file\nfor (const item of items) {\n  const fileInfo = item.json;\n  \n  // Skip if no content or error\n  if (!fileInfo.stdout || fileInfo.stderr) {\n    skippedFiles.push(fileInfo.filename);\n    console.log(`Skipping ${fileInfo.filename}: ${fileInfo.stderr || 'No content'}`);\n    continue;\n  }\n  \n  const content = fileInfo.stdout;\n  \n  // Skip very short content\n  if (!content || content.length < 50) {\n    skippedFiles.push(fileInfo.filename);\n    console.log(`Skipping ${fileInfo.filename}: Content too short`);\n    continue;\n  }\n  \n  processedFiles.push(fileInfo.filename);\n  \n  // Clean content\n  const cleanContent = content\n    .replace(/[\\r\\n]+/g, ' ')\n    .replace(/\\t+/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .replace(/[^\\x20-\\x7E\\s]/g, '') // Remove non-printable chars\n    .trim();\n  \n  // Create chunks for this file\n  const fileChunks = [];\n  let start = 0;\n  let chunkIndex = 0;\n  \n  while (start < cleanContent.length && chunkIndex < 20) {\n    const end = Math.min(start + CHUNK_SIZE, cleanContent.length);\n    const chunkText = cleanContent.slice(start, end);\n    \n    if (chunkText.length < 50) break;\n    \n    fileChunks.push({\n      id: `${fileInfo.filename.replace(/[^a-zA-Z0-9]/g, '_')}_${chunkIndex}`,\n      text: chunkText,\n      metadata: {\n        source_file: fileInfo.filename,\n        file_path: fileInfo.displayPath,\n        chunk_index: chunkIndex,\n        chunk_length: chunkText.length,\n        file_size: fileInfo.sizeMB + ' MB',\n        modified: fileInfo.modified,\n        indexed_at: new Date().toISOString()\n      }\n    });\n    \n    chunkIndex++;\n    start += CHUNK_SIZE - CHUNK_OVERLAP;\n    \n    if (end === cleanContent.length) break;\n  }\n  \n  console.log(`Created ${fileChunks.length} chunks from ${fileInfo.filename}`);\n  \n  // Process chunks in batches of 10\n  const batchSize = 10;\n  for (let i = 0; i < fileChunks.length; i += batchSize) {\n    const batch = fileChunks.slice(i, i + batchSize);\n    allBatches.push(batch);\n  }\n}\n\nconsole.log(`Total files processed: ${processedFiles.length}`);\nconsole.log(`Total batches to process: ${allBatches.length}`);\n\n// Process each batch: generate embeddings and store in ChromaDB\nlet successCount = 0;\nlet batchNumber = 0;\n\nfor (const batch of allBatches) {\n  batchNumber++;\n  console.log(`Processing batch ${batchNumber}/${allBatches.length}`);\n  \n  try {\n    // Generate embeddings for each chunk in the batch\n    const embeddings = [];\n    \n    for (const chunk of batch) {\n      try {\n        // Simple POST request to Ollama for embeddings\n        const embeddingResponse = await axios.post(\n          'http://ollama:11434/api/embeddings',\n          {\n            model: 'nomic-embed-text',\n            prompt: chunk.text\n          },\n          {\n            headers: {\n              'Content-Type': 'application/json'\n            },\n            timeout: 30000\n          }\n        );\n        \n        if (embeddingResponse.data && embeddingResponse.data.embedding) {\n          embeddings.push(embeddingResponse.data.embedding);\n        } else {\n          console.log('No embedding in response');\n          embeddings.push(new Array(768).fill(0)); // Placeholder\n        }\n      } catch (embedError) {\n        console.error(`Embedding error: ${embedError.message}`);\n        embeddings.push(new Array(768).fill(0)); // Placeholder on error\n      }\n    }\n    \n    // Store batch in ChromaDB\n    const chromaPayload = {\n      ids: batch.map(c => c.id),\n      documents: batch.map(c => c.text),\n      metadatas: batch.map(c => c.metadata),\n      embeddings: embeddings\n    };\n    \n    try {\n      const chromaResponse = await fetch('http://chromadb:8000/api/v1/collections/local_docs/add', {\n        method: 'POST',\n        headers: {\n          'Content-Type': 'application/json'\n        },\n        body: JSON.stringify(chromaPayload)\n      });\n      \n      if (chromaResponse.ok) {\n        successCount += batch.length;\n        console.log(`  Stored ${batch.length} chunks successfully`);\n      } else {\n        const errorText = await chromaResponse.text();\n        errors.push(`ChromaDB error for batch ${batchNumber}: ${errorText}`);\n        console.error(`  Failed to store batch: ${errorText}`);\n      }\n    } catch (chromaError) {\n      errors.push(`ChromaDB error for batch ${batchNumber}: ${chromaError.message}`);\n      console.error(`  Failed to store batch: ${chromaError.message}`);\n    }\n    \n  } catch (error) {\n    errors.push(`Batch ${batchNumber} error: ${error.message}`);\n    console.error(`Error processing batch ${batchNumber}: ${error.message}`);\n  }\n}\n\n// Return summary\nreturn [{\n  json: {\n    success: successCount > 0,\n    message: `Successfully indexed ${successCount} document chunks`,\n    summary: {\n      files_processed: processedFiles.length,\n      files_skipped: skippedFiles.length,\n      total_chunks_stored: successCount,\n      total_batches: allBatches.length,\n      processed_files: processedFiles.slice(0, 10),\n      skipped_files: skippedFiles.slice(0, 10),\n      errors: errors.slice(0, 5),\n      timestamp: new Date().toISOString()\n    }\n  }\n}];"
+        "jsCode": "// Simple success message\nconst batchResults = $input.all();\nlet successCount = 0;\nlet errorCount = 0;\n\nfor (const result of batchResults) {\n  if (result.json && !result.json.error) {\n    successCount++;\n  } else {\n    errorCount++;\n  }\n}\n\nreturn [{\n  json: {\n    status: 'complete',\n    batches_processed: batchResults.length,\n    successful_batches: successCount,\n    failed_batches: errorCount,\n    message: `Indexing complete: ${successCount} batches stored successfully`\n  }\n}];"
       },
-      "id": "process-and-store",
-      "name": "Process and Store Documents",
+      "id": "f9124f10-3bf9-42db-b2af-86fe57dca034",
+      "name": "Final Status",
       "type": "n8n-nodes-base.code",
-      "position": [1020, 300],
-      "typeVersion": 2,
-      "notes": "Chunks documents, generates embeddings, and stores in ChromaDB"
+      "position": [
+        1328,
+        -208
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ed57947e-7f9a-41d0-80a2-ab766285cd26",
+              "leftValue": "={{ $json.batches_processed }}",
+              "rightValue": "={{ $json.successful_batches }}",
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1536,
+        -208
+      ],
+      "id": "2031f4f5-19e5-444c-9f6e-d8b9f0ca2a20",
+      "name": "Success"
     }
   ],
+  "pinData": {},
   "connections": {
     "Manual Trigger": {
       "main": [
         [
           {
-            "node": "List Files in G: Drive",
+            "node": "Read Files",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "List Files in G: Drive": {
+    "Read Files": {
       "main": [
         [
           {
-            "node": "Parse File List",
+            "node": "Create Chunks",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Parse File List": {
+    "Create Chunks": {
       "main": [
         [
           {
-            "node": "Read File Content",
+            "node": "Batch Chunks",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Read File Content": {
+    "Batch Chunks": {
       "main": [
         [
           {
-            "node": "Process and Store Documents",
+            "node": "Generate Embedding",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Final Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Embedding": {
+      "main": [
+        [
+          {
+            "node": "Prepare Batch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Batch": {
+      "main": [
+        [
+          {
+            "node": "Store in ChromaDB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store in ChromaDB": {
+      "main": [
+        [
+          {
+            "node": "Batch Chunks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Final Status": {
+      "main": [
+        [
+          {
+            "node": "Success",
             "type": "main",
             "index": 0
           }
@@ -100,13 +260,14 @@
       ]
     }
   },
+  "active": false,
   "settings": {
     "executionOrder": "v1"
   },
-  "staticData": null,
+  "versionId": "b599403c-1a75-451e-b4f4-4ecc3fbedea4",
   "meta": {
-    "templateId": "document-indexer-gdrive-simplified",
-    "templateVersion": "3.0.0",
-    "templateDescription": "Indexes documents from G: drive with simplified HTTP requests using axios in Code nodes"
-  }
+    "instanceId": "677e34a50e2cfa65e82dcd45e3505b6b87f1f9c526a76a13bdd428094bfdaa0f"
+  },
+  "id": "dRLvEznMSLaJ8Ckn",
+  "tags": []
 }

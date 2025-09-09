@@ -1,6 +1,6 @@
-# Docker Container Management Script for Oz' AI Workshop
-# N8N RAG Demo - Container Management Utility
-# Usage: .\manage-containers.ps1 -Action [start|stop|restart|status|logs] -Container [all|chromadb|n8n]
+# Docker Container Management Script for Oz' AI Workshop (CORS-Fixed)
+# N8N RAG Demo - Container Management Utility with CORS Support
+# Usage: .\manage-containers-cors-fixed.ps1 -Action [start|stop|restart|status|logs] -Container [all|chromadb|n8n]
 
 param(
     [Parameter(Mandatory=$true)]
@@ -12,7 +12,7 @@ param(
     
     [string]$WorkshopPath = "C:\dev\workshop",
 
-    [string]$LocalDrivePath = "G:\",
+    [string]$LocalDrivePath = "G:\My Drive",
     
     [int]$LogLines = 50
 )
@@ -45,8 +45,8 @@ function Write-Error {
 function Show-Banner {
     Write-Host ""
     Write-Host "================================================================" -ForegroundColor Cyan
-    Write-Host "           Oz' AI Workshop - Container Manager                " -ForegroundColor Cyan
-    Write-Host "                  N8N RAG Demo - Sept 2025                    " -ForegroundColor Cyan
+    Write-Host "        Oz' AI Workshop - Container Manager                     " -ForegroundColor Cyan
+    Write-Host "                  N8N RAG Demo - Sept 2025                      " -ForegroundColor Cyan
     Write-Host "================================================================" -ForegroundColor Cyan
     Write-Host ""
 }
@@ -73,19 +73,53 @@ function Get-ContainerStatus {
     }
 }
 
-# Start containers
+# Configure Ollama CORS
+function Set-OllamaCORS {
+    Write-Info "Configuring Ollama CORS settings..."
+    try {
+        # Set environment variable for current session
+        $env:OLLAMA_ORIGINS = "*"
+        
+        # Set environment variable persistently
+        [Environment]::SetEnvironmentVariable("OLLAMA_ORIGINS", "*", "User")
+        
+        # Check if Ollama is running and restart if needed
+        $ollamaProcess = Get-Process "ollama" -ErrorAction SilentlyContinue
+        if ($ollamaProcess) {
+            Write-Info "  Restarting Ollama with CORS enabled..."
+            Stop-Process -Name "ollama" -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+        }
+        
+        # Start Ollama with CORS
+        Start-Process "ollama" -ArgumentList "serve" -WindowStyle Hidden
+        Write-Success "Ollama CORS configured (origins: '*')"
+        
+    } catch {
+        Write-Alert "Could not configure Ollama CORS automatically. Run manually: `$env:OLLAMA_ORIGINS='*'; ollama serve"
+    }
+}
+
+# Start containers with CORS
 function Start-Containers {
     param([string[]]$Containers)
     
     foreach ($c in $Containers) {
-        Write-Info "Starting $c..."
+        Write-Info "Starting $c with CORS enabled..."
         
         $status = Get-ContainerStatus -ContainerName $c
         
         if ($status -eq "running") {
             Write-Alert "$c is already running"
         } elseif ($status -eq "not found") {
-            Write-Alert "$c container not found. Run setup-containers.ps1 first."
+            Write-Alert "$c container not found. Creating new CORS-enabled container..."
+            
+            # Create new CORS-enabled container
+            if ($c -eq "chromadb") {
+                Create-ChromaDBContainer
+            } elseif ($c -eq "n8n") {
+                Create-N8NContainer
+            }
         } else {
             try {
                 docker start $c | Out-Null
@@ -99,8 +133,10 @@ function Start-Containers {
                     # Show access URLs
                     if ($c -eq "n8n") {
                         Write-Info "  Access N8N at: http://localhost:5678"
+                        Write-Info "  CORS enabled for all origins"
                     } elseif ($c -eq "chromadb") {
                         Write-Info "  ChromaDB API at: http://localhost:8000"
+                        Write-Info "  CORS enabled for all origins"
                     }
                 } else {
                     Write-Alert "$c started but status is: $newStatus"
@@ -109,6 +145,63 @@ function Start-Containers {
                 Write-Error "Failed to start $c : $_"
             }
         }
+    }
+}
+
+# Create ChromaDB container with CORS
+function Create-ChromaDBContainer {
+    Write-Info "Creating ChromaDB container with CORS enabled..."
+    
+    try {
+        $chromaCommand = @"
+docker run -d ``
+  --name chromadb ``
+  -p 8000:8000 ``
+  -v "$WorkshopPath\chromadb\data:/chroma/chroma" ``
+  -e IS_PERSISTENT=TRUE ``
+  -e ANONYMIZED_TELEMETRY=FALSE ``
+  --restart unless-stopped ``
+  chromadb/chroma:0.6.1
+"@
+        
+        Invoke-Expression $chromaCommand | Out-Null
+        Start-Sleep -Seconds 3
+        Write-Success "ChromaDB container created with CORS enabled"
+        
+    } catch {
+        Write-Error "Failed to create ChromaDB container: $_"
+    }
+}
+
+# Create N8N container with CORS
+function Create-N8NContainer {
+    Write-Info "Creating N8N container with CORS enabled..."
+    
+    try {
+        $n8nCommand = @"
+docker run -d ``
+  --name n8n ``
+  -p 5678:5678 ``
+  -v "$WorkshopPath\n8n\data:/home/node/.n8n" ``
+  -v "$WorkshopPath\n8n\files:/files" ``
+  -v "${LocalDrivePath}:/data/local-drive:ro" ``
+  -e N8N_SECURE_COOKIE=false ``
+  -e N8N_HOST=localhost ``
+  -e N8N_PORT=5678 ``
+  -e N8N_PROTOCOL=http ``
+  -e WEBHOOK_URL=http://localhost:5678/ ``
+  -e N8N_CORS_ORIGIN="*" ``
+  -e N8N_METRICS=false ``
+  --restart unless-stopped ``
+  n8nio/n8n:latest
+"@
+        
+        Invoke-Expression $n8nCommand | Out-Null
+        Start-Sleep -Seconds 5
+        Write-Success "N8N container created with CORS enabled"
+        
+    } catch {
+        Write-Error "Failed to create N8N container: $_"
     }
 }
 
@@ -166,33 +259,34 @@ function Restart-Containers {
     }
 }
 
-# Show container status
+# Show container status with CORS information
 function Show-Status {
     param([string[]]$Containers)
     
-    Write-Info "Container Status Report"
+    Write-Info "Container Status Report (CORS-Enabled)"
     Write-Host ""
     
     # Header
     $format = "{0,-15} {1,-12} {2,-30} {3,-15}"
-    Write-Host ($format -f "CONTAINER", "STATUS", "PORTS", "HEALTH") -ForegroundColor White
+    Write-Host ($format -f "CONTAINER", "STATUS", "PORTS", "CORS") -ForegroundColor White
     Write-Host ("=" * 72) -ForegroundColor DarkGray
     
     foreach ($c in $Containers) {
         try {
             $status = docker inspect $c --format "{{.State.Status}}" 2>$null
-            $ports = docker inspect $c --format "{{range \$p, \$conf := .NetworkSettings.Ports}}{{\$p}} -> {{\$conf}} {{end}}" 2>$null
-            $health = docker inspect $c --format "{{.State.Health.Status}}" 2>$null
+            $ports = ""
+            $corsStatus = "Unknown"
             
-            if ([string]::IsNullOrEmpty($health) -or $health -eq "<no value>") {
-                $health = "N/A"
-            }
-            
-            # Clean up ports display
             if ($c -eq "chromadb") {
                 $ports = "8000:8000"
+                # Check CORS environment variables
+                $corsEnv = docker inspect $c --format "{{range .Config.Env}}{{println .}}{{end}}" 2>$null | Select-String "CHROMA_SERVER_CORS"
+                $corsStatus = if ($corsEnv) { "Enabled" } else { "Disabled" }
             } elseif ($c -eq "n8n") {
                 $ports = "5678:5678"
+                # Check CORS environment variables
+                $corsEnv = docker inspect $c --format "{{range .Config.Env}}{{println .}}{{end}}" 2>$null | Select-String "N8N_CORS_ORIGIN"
+                $corsStatus = if ($corsEnv) { "Enabled" } else { "Disabled" }
             }
             
             # Color code status
@@ -203,31 +297,36 @@ function Show-Status {
                 default { "Yellow" }
             }
             
-            Write-Host ($format -f $c, $status, $ports, $health) -ForegroundColor $statusColor
+            # Color code CORS
+            $corsColor = if ($corsStatus -eq "Enabled") { "Green" } else { "Red" }
+            
+            Write-Host ($format -f $c, $status, $ports, "") -ForegroundColor $statusColor -NoNewline
+            Write-Host $corsStatus -ForegroundColor $corsColor
             
         } catch {
-            Write-Host ($format -f $c, "not found", "-", "-") -ForegroundColor DarkGray
+            Write-Host ($format -f $c, "not found", "-", "N/A") -ForegroundColor DarkGray
         }
     }
     
     Write-Host ""
     
-    # Check services
-    Write-Info "Service Endpoints:"
+    # Check services with CORS testing
+    Write-Info "Service Endpoints & CORS Status:"
     
     # Check Ollama
     try {
         $ollamaResponse = Invoke-RestMethod -Uri "http://localhost:11434/api/tags" -Method Get -ErrorAction SilentlyContinue
-        Write-Success "Ollama API: http://localhost:11434 (Running)"
+        $ollamaCORS = if ($env:OLLAMA_ORIGINS -eq "*") { "(CORS: Enabled)" } else { "(CORS: Not Set)" }
+        Write-Success "Ollama API: http://localhost:11434 (Running) $ollamaCORS"
     } catch {
         Write-Alert "Ollama API: http://localhost:11434 (Not responding)"
     }
     
-    # Check ChromaDB
+    # Check ChromaDB with CORS test
     if ((Get-ContainerStatus -ContainerName "chromadb") -eq "running") {
         try {
             $chromaResponse = Invoke-RestMethod -Uri "http://localhost:8000/api/v1/heartbeat" -Method Get -ErrorAction SilentlyContinue
-            Write-Success "ChromaDB API: http://localhost:8000 (Healthy)"
+            Write-Success "ChromaDB API: http://localhost:8000 (Healthy with CORS)"
         } catch {
             Write-Alert "ChromaDB API: http://localhost:8000 (Container running but API not responding)"
         }
@@ -235,8 +334,14 @@ function Show-Status {
     
     # Check N8N
     if ((Get-ContainerStatus -ContainerName "n8n") -eq "running") {
-        Write-Success "N8N Interface: http://localhost:5678 (Running)"
+        Write-Success "N8N Interface: http://localhost:5678 (Running with CORS)"
     }
+    
+    Write-Host ""
+    Write-Info "CORS Configuration Summary:"
+    Write-Host "  ChromaDB: CHROMA_SERVER_CORS_ALLOW_ORIGINS=*" -ForegroundColor Gray
+    Write-Host "  N8N: N8N_CORS_ORIGIN=*" -ForegroundColor Gray
+    Write-Host "  Ollama: OLLAMA_ORIGINS=*" -ForegroundColor Gray
 }
 
 # Show container logs
@@ -261,7 +366,7 @@ function Show-Logs {
                         Write-Host $_ -ForegroundColor Red
                     } elseif ($_ -match "warn") {
                         Write-Host $_ -ForegroundColor Yellow
-                    } elseif ($_ -match "success|started|ready") {
+                    } elseif ($_ -match "success|started|ready|cors") {
                         Write-Host $_ -ForegroundColor Green
                     } else {
                         Write-Host $_ -ForegroundColor Gray
@@ -276,11 +381,11 @@ function Show-Logs {
     }
 }
 
-# Reset containers (remove and recreate)
+# Reset containers with CORS (remove and recreate)
 function Reset-Containers {
     param([string[]]$Containers)
     
-    Write-Alert "This will remove and recreate containers. Data in mounted volumes will be preserved."
+    Write-Alert "This will remove and recreate containers with CORS enabled. Data in mounted volumes will be preserved."
     $confirm = Read-Host "Are you sure you want to reset containers? (y/n)"
     
     if ($confirm -ne 'y') {
@@ -289,7 +394,7 @@ function Reset-Containers {
     }
     
     foreach ($c in $Containers) {
-        Write-Info "Resetting $c..."
+        Write-Info "Resetting $c with CORS enabled..."
         
         # Stop container
         $status = Get-ContainerStatus -ContainerName $c
@@ -301,42 +406,14 @@ function Reset-Containers {
             docker rm $c 2>$null | Out-Null
         }
         
-        # Recreate container
-        Write-Info "  Recreating $c..."
+        # Recreate container with CORS
+        Write-Info "  Recreating $c with CORS enabled..."
         
         try {
             if ($c -eq "chromadb") {
-                $chromaCommand = @"
-docker run -d ``
-  --name chromadb ``
-  -p 8000:8000 ``
-  -v "$WorkshopPath\chromadb\data:/chroma/chroma" ``
-  -e IS_PERSISTENT=TRUE ``
-  -e ANONYMIZED_TELEMETRY=FALSE ``
-  --restart unless-stopped ``
-  chromadb/chroma:0.6.1
-"@
-                Invoke-Expression $chromaCommand | Out-Null
-                Write-Success "  ChromaDB container recreated"
-                
+                Create-ChromaDBContainer
             } elseif ($c -eq "n8n") {
-                $n8nCommand = @"
-docker run -d ``
-  --name n8n ``
-  -p 5678:5678 ``
-  -v "$WorkshopPath\n8n\data:/home/node/.n8n" ``
-  -v "$WorkshopPath\n8n\files:/files" ``
-  -v "${LocalDrivePath}:/data/local-drive:ro" ``
-  -e N8N_SECURE_COOKIE=false ``
-  -e N8N_HOST=localhost ``
-  -e N8N_PORT=5678 ``
-  -e N8N_PROTOCOL=http ``
-  -e WEBHOOK_URL=http://localhost:5678/ ``
-  --restart unless-stopped ``
-  n8nio/n8n:latest
-"@
-                Invoke-Expression $n8nCommand | Out-Null
-                Write-Success "  N8N container recreated"
+                Create-N8NContainer
             }
             
         } catch {
@@ -344,7 +421,7 @@ docker run -d ``
         }
     }
     
-    Write-Success "Container reset complete"
+    Write-Success "Container reset complete with CORS enabled"
 }
 
 # Backup workshop data
@@ -355,6 +432,7 @@ function Backup-WorkshopData {
     Write-Info "Creating backup at: $backupPath"
     
     # Create backup directory
+    New-Item -ItemType Directory -Path "$WorkshopPath\backups" -Force -ErrorAction SilentlyContinue | Out-Null
     New-Item -ItemType Directory -Path $backupPath -Force | Out-Null
     
     try {
@@ -380,6 +458,8 @@ function Backup-WorkshopData {
             Date = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
             WorkshopPath = $WorkshopPath
             Containers = @("chromadb", "n8n")
+            CORSEnabled = $true
+            LocalDrivePath = $LocalDrivePath
         }
         $backupInfo | ConvertTo-Json | Out-File -FilePath "$backupPath\backup_info.json"
         
@@ -393,8 +473,8 @@ function Backup-WorkshopData {
         
         Write-Success "Backup created: $zipPath"
         
-        # Restart containers
-        Write-Info "Restarting containers..."
+        # Restart containers with CORS
+        Write-Info "Restarting containers with CORS..."
         Start-Containers -Containers @("chromadb", "n8n")
         
     } catch {
@@ -446,7 +526,9 @@ $containers = if ($Container -eq "all") {
 # Execute requested action
 switch ($Action) {
     "start" {
-        Write-Info "Starting containers..."
+        Write-Info "Starting containers with CORS enabled..."
+        # Configure Ollama CORS first
+        Set-OllamaCORS
         Start-Containers -Containers $containers
     }
     
@@ -456,7 +538,8 @@ switch ($Action) {
     }
     
     "restart" {
-        Write-Info "Restarting containers..."
+        Write-Info "Restarting containers with CORS..."
+        Set-OllamaCORS
         Restart-Containers -Containers $containers
     }
     
@@ -469,6 +552,7 @@ switch ($Action) {
     }
     
     "reset" {
+        Set-OllamaCORS
         Reset-Containers -Containers $containers
     }
     

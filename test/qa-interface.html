@@ -368,7 +368,7 @@
             // Check ChromaDB
             try {
                 const response = await fetch(`${CHROMADB_URL}/api/v1/heartbeat`);
-                if (response.ok) {
+                if (response.status === 200) {
                     document.getElementById('chromadb-status').className = 'status-value online';
                     document.getElementById('chromadb-status').textContent = 'Online';
                     
@@ -392,7 +392,7 @@
             // Check Ollama
             try {
                 const response = await fetch(`${OLLAMA_URL}/api/tags`);
-                if (response.ok) {
+                if (response.status === 200) {
                     document.getElementById('ollama-status').className = 'status-value online';
                     document.getElementById('ollama-status').textContent = 'Online';
                 }
