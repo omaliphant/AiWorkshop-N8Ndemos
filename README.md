@@ -115,8 +115,10 @@ c:\dev\workshop\
 - **API**: Local REST API at `http://localhost:11434`
 
 ### 2. **ChromaDB (Vector Database)**
+- **Version**: 0.6.1 (stable with v1 API)
 - **Purpose**: Stores document embeddings for semantic search
 - **Access**: REST API at `http://localhost:8000`
+- **API Version**: v1 endpoints (`/api/v1/`)
 - **Persistence**: Data saved in `chromadb/data/`
 
 ### 3. **N8N (Workflow Automation)**

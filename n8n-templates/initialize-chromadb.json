@@ -1,5 +1,5 @@
 {
-  "name": "Initialize ChromaDB for Local Docs",
+  "name": "Initialize ChromaDB - Working Version",
   "nodes": [
     {
       "parameters": {},
@@ -7,78 +7,30 @@
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
       "position": [250, 300],
-      "typeVersion": 1,
-      "notes": "Run this once to setup ChromaDB collection"
+      "typeVersion": 1
     },
     {
       "parameters": {
-        "method": "DELETE",
-        "url": "http://localhost:8000/api/v1/collections/local_docs",
-        "options": {
-          "ignoreResponseCode": true,
-          "timeout": 5000
-        }
-      },
-      "id": "delete-existing",
-      "name": "Delete Existing Collection",
-      "type": "n8n-nodes-base.httpRequest",
-      "position": [450, 300],
-      "typeVersion": 3,
-      "notes": "Removes existing collection if it exists",
-      "continueOnFail": true
-    },
-    {
-      "parameters": {
-        "functionCode": "// Wait a moment for deletion to complete\nawait new Promise(resolve => setTimeout(resolve, 1000));\n\nreturn {\n  message: 'Waited for deletion to complete',\n  timestamp: new Date().toISOString()\n};"
-      },
-      "id": "wait",
-      "name": "Wait",
-      "type": "n8n-nodes-base.function",
-      "position": [650, 300],
-      "typeVersion": 1,
-      "notes": "Brief pause to ensure deletion is complete"
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://localhost:8000/api/v1/collections",
-        "options": {
-          "bodyContentType": "json",
-          "timeout": 5000
-        },
-        "bodyParametersJson": "{\n  \"name\": \"local_docs\",\n  \"metadata\": {\n    \"description\": \"Local/mapped drive documents for RAG\",\n    \"created_at\": \"{{new Date().toISOString()}}\",\n    \"source\": \"G: drive or local filesystem\",\n    \"workshop\": \"Oz AI Workshop - Sept 2025\"\n  }\n}"
+        "jsCode": "// Use N8N's built-in helpers to make HTTP request\n// This avoids the header issues with the HTTP Request node\n\nconst url = 'http://localhost:8000/api/v1/collections';\n\nconst requestOptions = {\n  method: 'POST',\n  headers: {\n    'Content-Type': 'application/json'\n  },\n  body: JSON.stringify({\n    name: 'local_docs',\n    get_or_create: true,\n    metadata: {\n      description: 'Local document collection for RAG',\n      created: new Date().toISOString(),\n      workshop: 'Oz AI Workshop - Sept 2025'\n    }\n  })\n};\n\ntry {\n  // Use N8N's $http helper if available\n  if (typeof $http !== 'undefined') {\n    const response = await $http.post(url, {\n      name: 'local_docs',\n      get_or_create: true,\n      metadata: {\n        description: 'Local document collection for RAG',\n        created: new Date().toISOString(),\n        workshop: 'Oz AI Workshop - Sept 2025'\n      }\n    });\n    \n    return [{\n      json: {\n        success: true,\n        message: 'Collection \"local_docs\" is ready!',\n        collection: response,\n        status: 'Collection created or already exists',\n        next_steps: [\n          '✓ ChromaDB collection initialized',\n          '→ Now run the Document Indexer workflow',\n          '→ Then test with the Q&A System'\n        ]\n      }\n    }];\n  } else {\n    // Fallback to fetch\n    const response = await fetch(url, requestOptions);\n    const data = await response.json();\n    \n    if (response.ok || data.name === 'local_docs') {\n      return [{\n        json: {\n          success: true,\n          message: 'Collection \"local_docs\" is ready!',\n          collection: data,\n          status: 'Collection created or already exists',\n          next_steps: [\n            '✓ ChromaDB collection initialized',\n            '→ Now run the Document Indexer workflow',\n            '→ Then test with the Q&A System'\n          ]\n        }\n      }];\n    } else {\n      throw new Error(`ChromaDB error: ${JSON.stringify(data)}`);\n    }\n  }\n} catch (error) {\n  // Even if there's an error, check if it's because collection exists\n  if (error.message && error.message.includes('already exists')) {\n    return [{\n      json: {\n        success: true,\n        message: 'Collection \"local_docs\" already exists!',\n        status: 'Using existing collection',\n        next_steps: [\n          '✓ ChromaDB collection already set up',\n          '→ Ready to use with Document Indexer',\n          '→ Then test with the Q&A System'\n        ]\n      }\n    }];\n  }\n  \n  // Real error\n  return [{\n    json: {\n      success: false,\n      error: error.message,\n      suggestion: 'Check if ChromaDB is running on port 8000',\n      debug_info: {\n        url: url,\n        error_details: error.toString()\n      },\n      troubleshooting: [\n        '1. Verify ChromaDB is running: docker ps',\n        '2. Test ChromaDB: curl http://localhost:8000/api/v1/heartbeat',\n        '3. Check logs: docker logs chromadb'\n      ]\n    }\n  }];\n}"
       },
       "id": "create-collection",
       "name": "Create Collection",
-      "type": "n8n-nodes-base.httpRequest",
-      "position": [850, 300],
-      "typeVersion": 3,
-      "notes": "Creates new ChromaDB collection"
-    },
-    {
-      "parameters": {
-        "functionCode": "// Verify collection was created\nconst result = $input.item.json;\n\nif (result.name === 'local_docs') {\n  return {\n    success: true,\n    message: 'ChromaDB collection \"local_docs\" created successfully!',\n    collection_name: result.name,\n    collection_id: result.id,\n    metadata: result.metadata,\n    next_steps: [\n      '1. Run the \"Local Drive Document Indexer\" workflow to index files',\n      '2. Activate the \"Local Drive Q&A System\" workflow',\n      '3. Test with sample questions about your documents'\n    ],\n    timestamp: new Date().toISOString()\n  };\n} else {\n  throw new Error('Collection creation failed - unexpected response');\n}"
-      },
-      "id": "verify-success",
-      "name": "Verify Success",
-      "type": "n8n-nodes-base.function",
-      "position": [1050, 300],
-      "typeVersion": 1,
-      "notes": "Confirms collection was created successfully"
+      "type": "n8n-nodes-base.code",
+      "position": [450, 300],
+      "typeVersion": 2
     }
   ],
   "connections": {
     "Manual Trigger": {
-      "main": [[{"node": "Delete Existing Collection"}]]
-    },
-    "Delete Existing Collection": {
-      "main": [[{"node": "Wait"}]]
-    },
-    "Wait": {
-      "main": [[{"node": "Create Collection"}]]
-    },
-    "Create Collection": {
-      "main": [[{"node": "Verify Success"}]]
+      "main": [
+        [
+          {
+            "node": "Create Collection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
@@ -86,8 +38,8 @@
   },
   "staticData": null,
   "meta": {
-    "templateId": "initialize-chromadb-local",
+    "templateId": "initialize-chromadb-working",
     "templateVersion": "1.0.0",
-    "templateDescription": "Initializes ChromaDB collection for local document storage"
+    "templateDescription": "Working initialization using Code node instead of HTTP Request node"
   }
 }

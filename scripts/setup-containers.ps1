@@ -3,7 +3,7 @@
 # This version works with local/mapped drives instead of Google Drive
 
 param(
-    [string]$WorkshopPath = "C:\Workshop",
+    [string]$WorkshopPath = "c:\dev\workshop",
     [string]$ChromaDBPort = "8000",
     [string]$N8NPort = "5678",
     [switch]$RemoveExisting = $false,
@@ -27,7 +27,6 @@ Write-Host "================================================================" -F
 
 # Check if local drive path exists
 Write-Info "[1/6] Checking local drive access..."
-# Just a simple existence check - instant!
 if (Test-Path $LocalDrivePath) {
     Write-Success "  [OK] Path exists and is accessible"
 } else {
@@ -149,8 +148,8 @@ try {
     if ($chromaRunning) {
         Write-Alert "  [->] ChromaDB container is already running"
     } else {
-        Write-Info "  Pulling ChromaDB image..."
-        docker pull chromadb/chroma:latest
+        Write-Info "  Pulling ChromaDB image (v0.6.1)..."
+        docker pull chromadb/chroma:0.4.24
         
         Write-Info "  Starting ChromaDB container..."
         $chromaCommand = @"
@@ -161,7 +160,7 @@ docker run -d ``
   -e IS_PERSISTENT=TRUE ``
   -e ANONYMIZED_TELEMETRY=FALSE ``
   --restart unless-stopped ``
-  chromadb/chroma:latest
+  chromadb/chroma:0.6.1
 "@
         
         Invoke-Expression $chromaCommand

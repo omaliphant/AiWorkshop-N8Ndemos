@@ -150,7 +150,7 @@ ollama pull nomic-embed-text
 # Create directories
 mkdir -p ~/Workshop/{chromadb/data,n8n/data,n8n/files,test,scripts}
 
-# Run ChromaDB
+# Run ChromaDB (version 0.6.1 for API compatibility)
 docker run -d \
   --name chromadb \
   -p 8000:8000 \
@@ -158,7 +158,7 @@ docker run -d \
   -e IS_PERSISTENT=TRUE \
   -e ANONYMIZED_TELEMETRY=FALSE \
   --restart unless-stopped \
-  chromadb/chroma:latest
+  chromadb/chroma:0.6.1
 
 # Run N8N
 docker run -d \

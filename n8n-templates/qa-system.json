@@ -1,5 +1,5 @@
 {
-  "name": "Local Drive Q&A System",
+  "name": "Local Drive Q&A System v2",
   "nodes": [
     {
       "parameters": {
@@ -26,7 +26,7 @@
     },
     {
       "parameters": {
-        "functionCode": "// Extract and validate question\nconst body = $input.item.json.body;\nconst question = body.question || body.query || body.q;\n\nif (!question || question.trim().length === 0) {\n  throw new Error('Question is required. Send JSON with \"question\" field.');\n}\n\n// Clean and prepare question\nconst cleanedQuestion = question.trim();\n\n// Query expansion for better retrieval\n// Add synonyms and related terms\nconst expandedQuery = cleanedQuestion\n  .toLowerCase()\n  .replace(/[^a-z0-9\\s]/g, ' ')\n  .trim();\n\n// Log for debugging\nconsole.log(`Original question: ${cleanedQuestion}`);\nconsole.log(`Expanded query: ${expandedQuery}`);\n\nreturn {\n  original_question: cleanedQuestion,\n  expanded_query: expandedQuery,\n  timestamp: new Date().toISOString(),\n  session_id: body.session_id || 'default',\n  max_results: body.max_results || 5\n};"
+        "functionCode": "// Extract and validate question\nconst body = $input.item.json.body;\nconst question = body.question || body.query || body.q;\n\nif (!question || question.trim().length === 0) {\n  throw new Error('Question is required. Send JSON with \"question\" field.');\n}\n\n// Clean and prepare question\nconst cleanedQuestion = question.trim();\n\n// Query expansion for better retrieval\nconst expandedQuery = cleanedQuestion\n  .toLowerCase()\n  .replace(/[^a-z0-9\\s]/g, ' ')\n  .trim();\n\nconsole.log(`Original question: ${cleanedQuestion}`);\nconsole.log(`Expanded query: ${expandedQuery}`);\n\nreturn {\n  original_question: cleanedQuestion,\n  expanded_query: expandedQuery,\n  timestamp: new Date().toISOString(),\n  session_id: body.session_id || 'default',\n  max_results: body.max_results || 5\n};"
       },
       "id": "process-question",
       "name": "Process Question",
@@ -54,29 +54,40 @@
     },
     {
       "parameters": {
+        "functionCode": "// Prepare query for ChromaDB v2\nconst embedding = $input.item.json.embedding;\nconst maxResults = $input.item.json.max_results;\n\n// ChromaDB v2 query format\nreturn {\n  query_embeddings: [embedding],\n  n_results: maxResults,\n  include: [\"documents\", \"metadatas\", \"distances\"],\n  // Pass through the question for later use\n  original_question: $input.item.json.original_question\n};"
+      },
+      "id": "prepare-query",
+      "name": "Prepare Query",
+      "type": "n8n-nodes-base.function",
+      "position": [850, 300],
+      "typeVersion": 1,
+      "notes": "Prepares the query for ChromaDB v2"
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "http://localhost:8000/api/v1/collections/local_docs/query",
         "options": {
           "bodyContentType": "json",
           "timeout": 10000
         },
-        "bodyParametersJson": "{\n  \"query_embeddings\": [{{$json.embedding}}],\n  \"n_results\": {{$json.max_results}},\n  \"include\": [\"documents\", \"metadatas\", \"distances\"]\n}"
+        "bodyParametersJson": "{\n  \"query_embeddings\": {{JSON.stringify($json.query_embeddings)}},\n  \"n_results\": {{$json.n_results}},\n  \"include\": {{JSON.stringify($json.include)}}\n}"
       },
       "id": "search-chromadb",
       "name": "Search ChromaDB",
       "type": "n8n-nodes-base.httpRequest",
-      "position": [850, 300],
+      "position": [1050, 300],
       "typeVersion": 3,
-      "notes": "Searches for relevant document chunks"
+      "notes": "Searches for relevant document chunks in ChromaDB v2"
     },
     {
       "parameters": {
-        "functionCode": "// Process search results and build context\nconst results = $input.item.json;\nconst question = $input.item.json.original_question;\n\n// Check if we have results\nif (!results.documents || !results.documents[0] || results.documents[0].length === 0) {\n  return {\n    context: 'No relevant documents found in the local drive.',\n    sources: [],\n    question: question,\n    has_results: false\n  };\n}\n\n// Extract results\nconst documents = results.documents[0];\nconst metadatas = results.metadatas[0];\nconst distances = results.distances[0];\n\n// Build context from top results\nlet context = '';\nconst sources = [];\nconst seen_files = new Set();\n\n// Relevance threshold (lower is better for cosine distance)\nconst RELEVANCE_THRESHOLD = 0.7;\n\nfor (let i = 0; i < documents.length; i++) {\n  // Only include relevant results\n  if (distances[i] <= RELEVANCE_THRESHOLD) {\n    const metadata = metadatas[i];\n    const document = documents[i];\n    \n    // Add to context\n    context += `[Source: ${metadata.source}]\\n${document}\\n\\n`;\n    \n    // Track unique sources\n    if (!seen_files.has(metadata.path)) {\n      seen_files.add(metadata.path);\n      sources.push({\n        file: metadata.source,\n        path: metadata.path,\n        modified: metadata.modified,\n        relevance: (1 - distances[i]).toFixed(3),\n        chunk_info: `Chunk ${metadata.chunk_index + 1}/${metadata.total_chunks}`\n      });\n    }\n  }\n}\n\n// If no documents met the threshold\nif (context === '') {\n  context = 'Found documents but none were sufficiently relevant to the question.';\n}\n\nconsole.log(`Found ${sources.length} relevant source files`);\n\nreturn {\n  context: context,\n  sources: sources,\n  question: question,\n  num_sources: sources.length,\n  has_results: true\n};"
+        "functionCode": "// Process search results and build context\nconst results = $input.item.json;\nconst question = $input.item.json.original_question;\n\n// Check if we have results\nif (!results.documents || !results.documents[0] || results.documents[0].length === 0) {\n  return {\n    context: 'No relevant documents found in the local drive.',\n    sources: [],\n    question: question,\n    has_results: false\n  };\n}\n\n// Extract results\nconst documents = results.documents[0];\nconst metadatas = results.metadatas[0];\nconst distances = results.distances[0];\n\n// Build context from top results\nlet context = '';\nconst sources = [];\nconst seen_files = new Set();\n\n// Relevance threshold (lower is better for cosine distance)\nconst RELEVANCE_THRESHOLD = 0.7;\n\nfor (let i = 0; i < documents.length; i++) {\n  // Only include relevant results\n  if (distances[i] <= RELEVANCE_THRESHOLD) {\n    const metadata = metadatas[i];\n    const document = documents[i];\n    \n    // Add to context\n    context += `[Source: ${metadata.source_file}]\\n${document}\\n\\n`;\n    \n    // Track unique sources\n    if (!seen_files.has(metadata.file_path)) {\n      seen_files.add(metadata.file_path);\n      sources.push({\n        file: metadata.source_file,\n        path: metadata.file_path,\n        modified: metadata.modified_date,\n        relevance: (1 - distances[i]).toFixed(3),\n        chunk_info: `Chunk ${metadata.chunk_index + 1}`\n      });\n    }\n  }\n}\n\n// If no documents met the threshold\nif (context === '') {\n  context = 'Found documents but none were sufficiently relevant to the question.';\n}\n\nconsole.log(`Found ${sources.length} relevant source files`);\n\nreturn {\n  context: context,\n  sources: sources,\n  question: question,\n  num_sources: sources.length,\n  has_results: true\n};"
       },
       "id": "build-context",
       "name": "Build Context",
       "type": "n8n-nodes-base.function",
-      "position": [1050, 300],
+      "position": [1250, 300],
       "typeVersion": 1,
       "notes": "Builds context from search results"
     },
@@ -93,7 +104,7 @@
       "id": "generate-answer",
       "name": "Generate Answer",
       "type": "n8n-nodes-base.httpRequest",
-      "position": [1250, 300],
+      "position": [1450, 300],
       "typeVersion": 3,
       "notes": "Generates answer using Llama 3.2"
     },
@@ -104,7 +115,7 @@
       "id": "format-response",
       "name": "Format Response",
       "type": "n8n-nodes-base.function",
-      "position": [1450, 300],
+      "position": [1650, 300],
       "typeVersion": 1,
       "notes": "Formats the final response"
     },
@@ -115,7 +126,7 @@
       "id": "webhook-response",
       "name": "Webhook Response",
       "type": "n8n-nodes-base.respondToWebhook",
-      "position": [1650, 300],
+      "position": [1850, 300],
       "typeVersion": 1,
       "notes": "Sends response back to caller"
     }
@@ -128,6 +139,9 @@
       "main": [[{"node": "Embed Question"}]]
     },
     "Embed Question": {
+      "main": [[{"node": "Prepare Query"}]]
+    },
+    "Prepare Query": {
       "main": [[{"node": "Search ChromaDB"}]]
     },
     "Search ChromaDB": {
@@ -148,8 +162,8 @@
   },
   "staticData": null,
   "meta": {
-    "templateId": "qa-system-local",
-    "templateVersion": "1.0.0",
-    "templateDescription": "Q&A system for locally indexed documents"
+    "templateId": "qa-system-local-v2",
+    "templateVersion": "2.0.0",
+    "templateDescription": "Q&A system for locally indexed documents - ChromaDB v2"
   }
 }

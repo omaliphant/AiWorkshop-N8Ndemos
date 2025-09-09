@@ -11,6 +11,8 @@ param(
     [string]$Container = "all",
     
     [string]$WorkshopPath = "C:\dev\workshop",
+
+    [string]$LocalDrivePath = "G:\",
     
     [int]$LogLines = 50
 )
@@ -312,7 +314,7 @@ docker run -d ``
   -e IS_PERSISTENT=TRUE ``
   -e ANONYMIZED_TELEMETRY=FALSE ``
   --restart unless-stopped ``
-  chromadb/chroma:latest
+  chromadb/chroma:0.6.1
 "@
                 Invoke-Expression $chromaCommand | Out-Null
                 Write-Success "  ChromaDB container recreated"
@@ -324,6 +326,7 @@ docker run -d ``
   -p 5678:5678 ``
   -v "$WorkshopPath\n8n\data:/home/node/.n8n" ``
   -v "$WorkshopPath\n8n\files:/files" ``
+  -v "${LocalDrivePath}:/data/local-drive:ro" ``
   -e N8N_SECURE_COOKIE=false ``
   -e N8N_HOST=localhost ``
   -e N8N_PORT=5678 ``

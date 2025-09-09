@@ -1,136 +1,103 @@
 {
-  "name": "Local Drive Document Indexer",
+  "name": "G: Drive Document Indexer (Simplified HTTP)",
   "nodes": [
     {
-      "parameters": {
-        "rule": {
-          "interval": [
-            {
-              "field": "hours",
-              "hoursInterval": 6
-            }
-          ]
-        }
-      },
-      "id": "schedule-trigger",
-      "name": "Schedule Trigger",
-      "type": "n8n-nodes-base.scheduleTrigger",
-      "position": [250, 300],
-      "typeVersion": 1.1,
-      "notes": "Runs every 6 hours to index new/updated documents"
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "position": [220, 300],
+      "typeVersion": 1
     },
     {
       "parameters": {
-        "functionCode": "// Configuration - MODIFY THESE FOR YOUR ENVIRONMENT\nconst config = {\n  // Base path to scan (use double backslashes for Windows)\n  basePath: 'G:\\\\',  // Change to your mapped drive or local folder\n  \n  // Specific subdirectories to scan (leave empty to scan entire drive)\n  // Example: ['Policies', 'Procedures', 'Documentation']\n  subdirectories: [],\n  \n  // File patterns to include\n  includePatterns: ['*.pdf', '*.docx', '*.txt', '*.md', '*.doc'],\n  \n  // Patterns to exclude\n  excludePatterns: ['~$*', '.*', 'Thumbs.db', '*.tmp'],\n  \n  // Maximum file size in MB (skip larger files)\n  maxFileSizeMB: 50,\n  \n  // Skip files older than X days (0 = no limit)\n  maxAgeInDays: 0\n};\n\n// Import required modules\nconst fs = require('fs').promises;\nconst path = require('path');\n\n// Function to recursively find files\nasync function findFiles(dir, fileList = []) {\n  try {\n    const files = await fs.readdir(dir, { withFileTypes: true });\n    \n    for (const file of files) {\n      const filePath = path.join(dir, file.name);\n      \n      if (file.isDirectory()) {\n        // Skip system directories\n        if (!file.name.startsWith('.') && !file.name.startsWith('$')) {\n          await findFiles(filePath, fileList);\n        }\n      } else {\n        // Check if file matches patterns\n        const ext = path.extname(file.name).toLowerCase();\n        const shouldInclude = config.includePatterns.some(pattern => {\n          const regex = new RegExp(pattern.replace('*', '.*'));\n          return regex.test(file.name);\n        });\n        \n        const shouldExclude = config.excludePatterns.some(pattern => {\n          const regex = new RegExp(pattern.replace('*', '.*'));\n          return regex.test(file.name);\n        });\n        \n        if (shouldInclude && !shouldExclude) {\n          try {\n            const stats = await fs.stat(filePath);\n            \n            // Check file size\n            const fileSizeMB = stats.size / (1024 * 1024);\n            if (fileSizeMB > config.maxFileSizeMB) {\n              console.log(`Skipping large file: ${file.name} (${fileSizeMB.toFixed(2)} MB)`);\n              continue;\n            }\n            \n            // Check file age if configured\n            if (config.maxAgeInDays > 0) {\n              const ageInDays = (Date.now() - stats.mtime) / (1000 * 60 * 60 * 24);\n              if (ageInDays > config.maxAgeInDays) {\n                continue;\n              }\n            }\n            \n            fileList.push({\n              filepath: filePath,\n              filename: file.name,\n              directory: dir,\n              extension: ext,\n              size: stats.size,\n              modified: stats.mtime,\n              created: stats.birthtime\n            });\n          } catch (err) {\n            console.error(`Error accessing file ${filePath}: ${err.message}`);\n          }\n        }\n      }\n    }\n  } catch (err) {\n    console.error(`Error reading directory ${dir}: ${err.message}`);\n  }\n  \n  return fileList;\n}\n\n// Main execution\ntry {\n  let scanPaths = [];\n  \n  if (config.subdirectories && config.subdirectories.length > 0) {\n    // Scan specific subdirectories\n    scanPaths = config.subdirectories.map(subdir => \n      path.join(config.basePath, subdir)\n    );\n  } else {\n    // Scan entire base path\n    scanPaths = [config.basePath];\n  }\n  \n  const allFiles = [];\n  \n  for (const scanPath of scanPaths) {\n    console.log(`Scanning: ${scanPath}`);\n    const files = await findFiles(scanPath);\n    allFiles.push(...files);\n  }\n  \n  console.log(`Found ${allFiles.length} files to index`);\n  \n  // Return files as items for next node\n  return allFiles.map(file => ({\n    json: {\n      filepath: file.filepath,\n      filename: file.filename,\n      directory: file.directory,\n      extension: file.extension,\n      size: file.size,\n      modified: file.modified,\n      created: file.created,\n      fileId: Buffer.from(file.filepath).toString('base64') // Create unique ID\n    }\n  }));\n  \n} catch (error) {\n  throw new Error(`Failed to scan files: ${error.message}`);\n}"
+        "command": "find /data/gdrive -type f \\( -name '*.txt' -o -name '*.md' -o -name '*.doc' -o -name '*.docx' -o -name '*.pdf' \\) -printf '%p|%s|%TY-%Tm-%Td %TH:%TM:%TS\\n' 2>/dev/null | head -100"
       },
-      "id": "scan-local-files",
-      "name": "Scan Local Files",
-      "type": "n8n-nodes-base.function",
-      "position": [450, 300],
+      "id": "list-files",
+      "name": "List Files in G: Drive",
+      "type": "n8n-nodes-base.executeCommand",
+      "position": [420, 300],
       "typeVersion": 1,
-      "notes": "Scans G: drive or specified local folders for documents"
+      "notes": "Scans /data/gdrive for documents. Adjust 'head -100' to change file limit."
     },
     {
       "parameters": {
-        "filePath": "={{$json.filepath}}",
-        "dataPropertyName": "fileContent"
+        "jsCode": "// Parse the file list from the command output\nconst commandOutput = $input.first().json.stdout;\n\nif (!commandOutput || commandOutput.trim() === '') {\n  return [{\n    json: {\n      error: 'No files found in /data/gdrive',\n      suggestion: 'Check if G: drive is properly mounted to /data/gdrive'\n    }\n  }];\n}\n\n// Parse the file list\nconst files = [];\nconst lines = commandOutput.trim().split('\\n');\n\nfor (const line of lines) {\n  if (!line) continue;\n  \n  const parts = line.split('|');\n  if (parts.length >= 3) {\n    const filepath = parts[0];\n    const size = parseInt(parts[1]);\n    const modified = parts[2].split('.')[0]; // Remove decimal seconds\n    \n    // Get filename and extension\n    const filename = filepath.split('/').pop();\n    const extension = '.' + filename.split('.').pop().toLowerCase();\n    \n    // Skip files larger than 5MB\n    if (size > 5 * 1024 * 1024) {\n      console.log(`Skipping large file: ${filename} (${(size / 1024 / 1024).toFixed(2)} MB)`);\n      continue;\n    }\n    \n    files.push({\n      filepath: filepath,\n      filename: filename,\n      extension: extension,\n      size: size,\n      sizeMB: (size / 1024 / 1024).toFixed(2),\n      modified: modified,\n      displayPath: filepath.replace('/data/gdrive', 'G:')\n    });\n  }\n}\n\nconsole.log(`Found ${files.length} files to process`);\n\n// Return each file as a separate item for parallel processing\nreturn files.map(file => ({ json: file }));"
       },
-      "id": "read-file",
-      "name": "Read File",
-      "type": "n8n-nodes-base.readBinaryFile",
-      "position": [650, 300],
+      "id": "parse-file-list",
+      "name": "Parse File List",
+      "type": "n8n-nodes-base.code",
+      "position": [620, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "command": "=cat \"{{ $json.filepath }}\" | head -c 100000"
+      },
+      "id": "read-file-content",
+      "name": "Read File Content",
+      "type": "n8n-nodes-base.executeCommand",
+      "position": [820, 300],
       "typeVersion": 1,
-      "notes": "Reads file content from local filesystem"
+      "notes": "Reads up to 100KB of each file",
+      "continueOnFail": true
     },
     {
       "parameters": {
-        "functionCode": "// Extract text based on file type\nconst filepath = $input.item.json.filepath;\nconst filename = $input.item.json.filename;\nconst extension = $input.item.json.extension.toLowerCase();\nconst fileContent = $input.item.binary.fileContent;\n\nlet textContent = '';\n\ntry {\n  if (extension === '.txt' || extension === '.md') {\n    // Plain text files - direct conversion\n    textContent = Buffer.from(fileContent.data, 'base64').toString('utf-8');\n    \n  } else if (extension === '.pdf') {\n    // PDF files - requires pdf-parse library\n    // For workshop, we'll do basic extraction or skip\n    // In production, use pdf-parse or similar\n    console.log(`PDF processing: ${filename}`);\n    // Simplified - you'd need proper PDF parsing here\n    textContent = `[PDF Content from ${filename} - requires pdf-parse library for full extraction]`;\n    \n  } else if (extension === '.docx' || extension === '.doc') {\n    // Word documents - requires mammoth or similar\n    console.log(`Word processing: ${filename}`);\n    // Simplified - you'd need proper DOCX parsing here\n    textContent = `[Word Content from ${filename} - requires mammoth library for full extraction]`;\n    \n    // Basic extraction for DOCX (XML-based)\n    if (extension === '.docx') {\n      try {\n        // DOCX files are zipped XML - this is a simplified extraction\n        const content = Buffer.from(fileContent.data, 'base64').toString('utf-8');\n        // Extract readable text between XML tags (very basic)\n        const matches = content.match(/>([^<]+)</g);\n        if (matches) {\n          textContent = matches.map(m => m.slice(1, -1)).join(' ');\n        }\n      } catch (e) {\n        console.log('Basic DOCX extraction failed, needs proper library');\n      }\n    }\n  } else {\n    // Try to read as text for unknown types\n    try {\n      textContent = Buffer.from(fileContent.data, 'base64').toString('utf-8');\n    } catch (e) {\n      textContent = `[Unable to extract text from ${filename}]`;\n    }\n  }\n  \n  // Clean the extracted text\n  textContent = textContent\n    .replace(/\\s+/g, ' ')  // Normalize whitespace\n    .replace(/[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F\\x7F]/g, '')  // Remove control characters\n    .trim();\n  \n  // Skip if no meaningful content\n  if (textContent.length < 50) {\n    console.log(`Skipping ${filename} - insufficient content`);\n    return [];\n  }\n  \n  return {\n    filepath: filepath,\n    filename: filename,\n    fileId: $input.item.json.fileId,\n    directory: $input.item.json.directory,\n    extension: extension,\n    modified: $input.item.json.modified,\n    textContent: textContent,\n    contentLength: textContent.length\n  };\n  \n} catch (error) {\n  console.error(`Error processing ${filename}: ${error.message}`);\n  return [];\n}"
+        "jsCode": "// Process all files and create chunks with embeddings\nconst items = $input.all();\nconst CHUNK_SIZE = 500;\nconst CHUNK_OVERLAP = 100;\n\n// Import axios for HTTP requests\nconst axios = require('axios');\n\nconst processedFiles = [];\nconst skippedFiles = [];\nconst errors = [];\nconst allBatches = [];\n\n// Process each file\nfor (const item of items) {\n  const fileInfo = item.json;\n  \n  // Skip if no content or error\n  if (!fileInfo.stdout || fileInfo.stderr) {\n    skippedFiles.push(fileInfo.filename);\n    console.log(`Skipping ${fileInfo.filename}: ${fileInfo.stderr || 'No content'}`);\n    continue;\n  }\n  \n  const content = fileInfo.stdout;\n  \n  // Skip very short content\n  if (!content || content.length < 50) {\n    skippedFiles.push(fileInfo.filename);\n    console.log(`Skipping ${fileInfo.filename}: Content too short`);\n    continue;\n  }\n  \n  processedFiles.push(fileInfo.filename);\n  \n  // Clean content\n  const cleanContent = content\n    .replace(/[\\r\\n]+/g, ' ')\n    .replace(/\\t+/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .replace(/[^\\x20-\\x7E\\s]/g, '') // Remove non-printable chars\n    .trim();\n  \n  // Create chunks for this file\n  const fileChunks = [];\n  let start = 0;\n  let chunkIndex = 0;\n  \n  while (start < cleanContent.length && chunkIndex < 20) {\n    const end = Math.min(start + CHUNK_SIZE, cleanContent.length);\n    const chunkText = cleanContent.slice(start, end);\n    \n    if (chunkText.length < 50) break;\n    \n    fileChunks.push({\n      id: `${fileInfo.filename.replace(/[^a-zA-Z0-9]/g, '_')}_${chunkIndex}`,\n      text: chunkText,\n      metadata: {\n        source_file: fileInfo.filename,\n        file_path: fileInfo.displayPath,\n        chunk_index: chunkIndex,\n        chunk_length: chunkText.length,\n        file_size: fileInfo.sizeMB + ' MB',\n        modified: fileInfo.modified,\n        indexed_at: new Date().toISOString()\n      }\n    });\n    \n    chunkIndex++;\n    start += CHUNK_SIZE - CHUNK_OVERLAP;\n    \n    if (end === cleanContent.length) break;\n  }\n  \n  console.log(`Created ${fileChunks.length} chunks from ${fileInfo.filename}`);\n  \n  // Process chunks in batches of 10\n  const batchSize = 10;\n  for (let i = 0; i < fileChunks.length; i += batchSize) {\n    const batch = fileChunks.slice(i, i + batchSize);\n    allBatches.push(batch);\n  }\n}\n\nconsole.log(`Total files processed: ${processedFiles.length}`);\nconsole.log(`Total batches to process: ${allBatches.length}`);\n\n// Process each batch: generate embeddings and store in ChromaDB\nlet successCount = 0;\nlet batchNumber = 0;\n\nfor (const batch of allBatches) {\n  batchNumber++;\n  console.log(`Processing batch ${batchNumber}/${allBatches.length}`);\n  \n  try {\n    // Generate embeddings for each chunk in the batch\n    const embeddings = [];\n    \n    for (const chunk of batch) {\n      try {\n        // Simple POST request to Ollama for embeddings\n        const embeddingResponse = await axios.post(\n          'http://ollama:11434/api/embeddings',\n          {\n            model: 'nomic-embed-text',\n            prompt: chunk.text\n          },\n          {\n            headers: {\n              'Content-Type': 'application/json'\n            },\n            timeout: 30000\n          }\n        );\n        \n        if (embeddingResponse.data && embeddingResponse.data.embedding) {\n          embeddings.push(embeddingResponse.data.embedding);\n        } else {\n          console.log('No embedding in response');\n          embeddings.push(new Array(768).fill(0)); // Placeholder\n        }\n      } catch (embedError) {\n        console.error(`Embedding error: ${embedError.message}`);\n        embeddings.push(new Array(768).fill(0)); // Placeholder on error\n      }\n    }\n    \n    // Store batch in ChromaDB\n    const chromaPayload = {\n      ids: batch.map(c => c.id),\n      documents: batch.map(c => c.text),\n      metadatas: batch.map(c => c.metadata),\n      embeddings: embeddings\n    };\n    \n    try {\n      const chromaResponse = await fetch('http://chromadb:8000/api/v1/collections/local_docs/add', {\n        method: 'POST',\n        headers: {\n          'Content-Type': 'application/json'\n        },\n        body: JSON.stringify(chromaPayload)\n      });\n      \n      if (chromaResponse.ok) {\n        successCount += batch.length;\n        console.log(`  Stored ${batch.length} chunks successfully`);\n      } else {\n        const errorText = await chromaResponse.text();\n        errors.push(`ChromaDB error for batch ${batchNumber}: ${errorText}`);\n        console.error(`  Failed to store batch: ${errorText}`);\n      }\n    } catch (chromaError) {\n      errors.push(`ChromaDB error for batch ${batchNumber}: ${chromaError.message}`);\n      console.error(`  Failed to store batch: ${chromaError.message}`);\n    }\n    \n  } catch (error) {\n    errors.push(`Batch ${batchNumber} error: ${error.message}`);\n    console.error(`Error processing batch ${batchNumber}: ${error.message}`);\n  }\n}\n\n// Return summary\nreturn [{\n  json: {\n    success: successCount > 0,\n    message: `Successfully indexed ${successCount} document chunks`,\n    summary: {\n      files_processed: processedFiles.length,\n      files_skipped: skippedFiles.length,\n      total_chunks_stored: successCount,\n      total_batches: allBatches.length,\n      processed_files: processedFiles.slice(0, 10),\n      skipped_files: skippedFiles.slice(0, 10),\n      errors: errors.slice(0, 5),\n      timestamp: new Date().toISOString()\n    }\n  }\n}];"
       },
-      "id": "extract-text",
-      "name": "Extract Text",
-      "type": "n8n-nodes-base.function",
-      "position": [850, 300],
-      "typeVersion": 1,
-      "notes": "Extracts text from various file formats"
-    },
-    {
-      "parameters": {
-        "functionCode": "// Chunk text into smaller segments with overlap\nconst text = $input.item.json.textContent;\nconst filepath = $input.item.json.filepath;\nconst filename = $input.item.json.filename;\nconst fileId = $input.item.json.fileId;\nconst modified = $input.item.json.modified;\n\n// Configuration\nconst CHUNK_SIZE = 1000; // characters\nconst CHUNK_OVERLAP = 200; // overlap between chunks\nconst MIN_CHUNK_SIZE = 100; // minimum chunk size\n\nfunction createChunks(text, chunkSize, overlap) {\n  const chunks = [];\n  let start = 0;\n  \n  while (start < text.length) {\n    const end = Math.min(start + chunkSize, text.length);\n    const chunk = text.slice(start, end);\n    \n    // Skip very small chunks at the end\n    if (chunk.length >= MIN_CHUNK_SIZE || chunks.length === 0) {\n      chunks.push({\n        text: chunk,\n        start_char: start,\n        end_char: end,\n        chunk_index: chunks.length\n      });\n    }\n    \n    // Move to next chunk with overlap\n    start += chunkSize - overlap;\n    \n    // Prevent infinite loop\n    if (end === text.length) break;\n  }\n  \n  return chunks;\n}\n\n// Create chunks\nconst chunks = createChunks(text, CHUNK_SIZE, CHUNK_OVERLAP);\n\nconsole.log(`Split ${filename} into ${chunks.length} chunks`);\n\n// Return array of chunk objects\nreturn chunks.map(chunk => ({\n  json: {\n    chunk_text: chunk.text,\n    chunk_index: chunk.chunk_index,\n    total_chunks: chunks.length,\n    metadata: {\n      source_file: filename,\n      file_path: filepath,\n      file_id: fileId,\n      chunk_start: chunk.start_char,\n      chunk_end: chunk.end_char,\n      modified_date: modified,\n      indexed_at: new Date().toISOString()\n    }\n  }\n}));"
-      },
-      "id": "chunk-text",
-      "name": "Chunk Text",
-      "type": "n8n-nodes-base.function",
-      "position": [1050, 300],
-      "typeVersion": 1,
-      "notes": "Splits text into overlapping chunks for better retrieval"
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://localhost:11434/api/embeddings",
-        "options": {
-          "bodyContentType": "json",
-          "timeout": 30000
-        },
-        "bodyParametersJson": "{\n  \"model\": \"nomic-embed-text\",\n  \"prompt\": \"={{$json.chunk_text}}\"\n}"
-      },
-      "id": "generate-embeddings",
-      "name": "Generate Embeddings",
-      "type": "n8n-nodes-base.httpRequest",
-      "position": [1250, 300],
-      "typeVersion": 3,
-      "notes": "Generates embeddings using Ollama"
-    },
-    {
-      "parameters": {
-        "functionCode": "// Prepare data for ChromaDB\nconst embedding = $input.item.json.embedding;\nconst metadata = $input.item.json.metadata;\nconst chunkText = $input.item.json.chunk_text;\nconst chunkId = `${metadata.file_id}_chunk_${$input.item.json.chunk_index}`;\n\nreturn {\n  id: chunkId,\n  embedding: embedding,\n  document: chunkText,\n  metadata: {\n    source: metadata.source_file,\n    path: metadata.file_path,\n    chunk_index: $input.item.json.chunk_index,\n    total_chunks: $input.item.json.total_chunks,\n    modified: metadata.modified_date,\n    indexed_at: metadata.indexed_at\n  }\n};"
-      },
-      "id": "prepare-chromadb",
-      "name": "Prepare for ChromaDB",
-      "type": "n8n-nodes-base.function",
-      "position": [1450, 300],
-      "typeVersion": 1,
-      "notes": "Formats data for ChromaDB storage"
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://localhost:8000/api/v1/collections/local_docs/add",
-        "options": {
-          "bodyContentType": "json",
-          "timeout": 10000
-        },
-        "bodyParametersJson": "{\n  \"ids\": [\"={{$json.id}}\"],\n  \"embeddings\": [{{$json.embedding}}],\n  \"documents\": [\"={{$json.document}}\"],\n  \"metadatas\": [{{JSON.stringify($json.metadata)}}]\n}"
-      },
-      "id": "store-chromadb",
-      "name": "Store in ChromaDB",
-      "type": "n8n-nodes-base.httpRequest",
-      "position": [1650, 300],
-      "typeVersion": 3,
-      "notes": "Stores embeddings and metadata in ChromaDB"
+      "id": "process-and-store",
+      "name": "Process and Store Documents",
+      "type": "n8n-nodes-base.code",
+      "position": [1020, 300],
+      "typeVersion": 2,
+      "notes": "Chunks documents, generates embeddings, and stores in ChromaDB"
     }
   ],
   "connections": {
-    "Schedule Trigger": {
-      "main": [[{"node": "Scan Local Files"}]]
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "List Files in G: Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "Scan Local Files": {
-      "main": [[{"node": "Read File"}]]
+    "List Files in G: Drive": {
+      "main": [
+        [
+          {
+            "node": "Parse File List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "Read File": {
-      "main": [[{"node": "Extract Text"}]]
+    "Parse File List": {
+      "main": [
+        [
+          {
+            "node": "Read File Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "Extract Text": {
-      "main": [[{"node": "Chunk Text"}]]
-    },
-    "Chunk Text": {
-      "main": [[{"node": "Generate Embeddings"}]]
-    },
-    "Generate Embeddings": {
-      "main": [[{"node": "Prepare for ChromaDB"}]]
-    },
-    "Prepare for ChromaDB": {
-      "main": [[{"node": "Store in ChromaDB"}]]
+    "Read File Content": {
+      "main": [
+        [
+          {
+            "node": "Process and Store Documents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
@@ -138,8 +105,8 @@
   },
   "staticData": null,
   "meta": {
-    "templateId": "local-document-indexer",
-    "templateVersion": "1.0.0",
-    "templateDescription": "Indexes documents from local/mapped drives for RAG Q&A"
+    "templateId": "document-indexer-gdrive-simplified",
+    "templateVersion": "3.0.0",
+    "templateDescription": "Indexes documents from G: drive with simplified HTTP requests using axios in Code nodes"
   }
 }
