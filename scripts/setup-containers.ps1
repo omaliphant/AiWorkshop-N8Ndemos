@@ -3,7 +3,7 @@
 # This version works with local/mapped drives instead of Google Drive
 
 param(
-    [string]$WorkshopPath = "C:\dev\workshop",
+    [string]$WorkshopPath = "C:\Workshop",
     [string]$ChromaDBPort = "8000",
     [string]$N8NPort = "5678",
     [switch]$RemoveExisting = $false,
@@ -184,7 +184,7 @@ docker run -d ``
 }
 
 # Setup N8N
-Write-Info "`n[6/6] Setting up N8N..."
+Write-Info "`nSetting up N8N..."
 
 try {
     # Check if N8N is already running
