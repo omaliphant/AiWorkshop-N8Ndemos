@@ -1,389 +1,232 @@
-# Oz' AI Workshop - N8N RAG Demo
-## 9 September 2025 - N8N with Ollama & Local File Indexing
+# Oz's AI Workshop - RAG Environment
+**September 10th, 2025**
 
-## 🎯 Overview
+A complete local RAG (Retrieval Augmented Generation) setup using N8N with LangChain nodes, Ollama, and Qdrant. Perfect for learning how AI systems can intelligently search and respond using your own documents.
 
-This workshop is part of **Oz' AI Workshop Series** and teaches participants how to build a **Retrieval-Augmented Generation (RAG)** system using N8N workflow automation, local file indexing, and local LLMs via Ollama. Perfect for corporate environments where data security is paramount - everything runs locally on your machine with no external API calls!
+## What You'll Learn Today
 
-### What You'll Build
-- 📚 **Document Indexing System**: Automatically indexes documents from your G: drive (or any local/mapped drive)
-- 🤖 **Intelligent Q&A Bot**: Answers questions about your company documents using AI
-- 🔒 **Fully Local Processing**: No data leaves your machine - uses Ollama with Llama 3.2
-- 🔄 **Automated Workflows**: N8N orchestrates the entire pipeline
-- 🚫 **No Authentication Required**: Direct file system access - no OAuth, APIs, or tokens needed
+- **RAG Architecture**: How Retrieval Augmented Generation works in practice
+- **Vector Databases**: Using Qdrant for semantic document search
+- **Local AI Models**: Running Llama 3.2 locally with Ollama
+- **Workflow Automation**: Building AI pipelines with N8N and LangChain
+- **Document Processing**: From files to searchable knowledge base
 
-### Key Features
-- ✅ **100% Local Processing** - No external API calls or cloud services
-- ✅ **Local Drive Indexing** - Works with G: drive or any mapped/local folders
-- ✅ **No Authentication Required** - No OAuth, tokens, or API keys needed
-- ✅ **Vector Search** - ChromaDB for intelligent document retrieval
-- ✅ **Production Ready** - Includes error handling, logging, and monitoring
-- ✅ **Simple Setup** - No complex authentication or permissions
+## Prerequisites
 
-## 📋 Prerequisites
+- Docker Desktop installed and running
+- NVIDIA GPU with Docker GPU support (optional but recommended)
+- At least 8GB RAM available for containers
+- Basic understanding of AI/ML concepts
 
-### System Requirements
-- **OS**: Windows 10/11 (64-bit) or macOS or Linux
-- **RAM**: Minimum 8GB (16GB recommended)
-- **Storage**: 20GB free space
-- **CPU**: Modern multi-core processor (4+ cores recommended)
-
-### Software Requirements
-- **Docker Desktop** (will be guided through installation)
-- **PowerShell 5.1+** (Windows) or Terminal (macOS/Linux)
-- **Access to G: drive** or local folders with documents
-- **Administrator privileges** for installation
-
-### Document Requirements
-- **Supported Formats**: PDF, DOCX, DOC, TXT, MD files
-- **Location**: G: drive (mapped network drive) or any local folder
-- **Permissions**: Read access to target folders
-
-## 🚀 Quick Start
+## Quick Setup
 
 ### Windows Users
-
-1. **Clone the Repository**
+1. **Open PowerShell as Administrator**
    ```powershell
-   # Clone the workshop repository
-   git clone [repository-url]
-   cd oz-ai-workshop-n8n
+   # Navigate to workshop directory
+   cd path\to\workshop
+   
+   # Run setup script
+   .\setup.ps1
+   
+   # For CPU-only (no GPU)
+   .\setup.ps1 -NoGPU
    ```
 
-2. **Run Installation Scripts**
-   ```powershell
-   # Run as Administrator
-   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
-   
-   # Install prerequisites (Ollama, models)
-   .\scripts\install-prerequisites.ps1
-   
-   # Setup Docker containers (ChromaDB, N8N)
-   .\scripts\setup-containers.ps1
-   
-   # Optional: Specify your drive path
-   .\scripts\setup-containers.ps1 -LocalDrivePath "G:\"
+### Linux/Mac Users
+1. **Run setup script**
+   ```bash
+   chmod +x setup.sh
+   ./setup.sh
    ```
 
-3. **Access the Applications**
-   - N8N Interface: http://localhost:5678
-   - ChromaDB API: http://localhost:8000
-   - Test Interface: `c:\dev\workshop\test\qa-interface-local.html`
+### Manual Setup (if scripts fail)
+```bash
+# Start all services
+docker-compose up -d
 
-### macOS/Linux Users
+# Pull the AI model
+docker exec ollama ollama pull llama3.2:3b
 
-See [Setup Guide](SETUP_GUIDE.md) for detailed instructions.
-
-## 📁 Repository Structure
-
-```
-oz-ai-workshop-n8n/
-├── scripts/
-│   ├── install-prerequisites.ps1    # Ollama & model installation
-│   ├── setup-containers.ps1         # Docker container setup
-│   └── manage-containers.ps1        # Container management utility
-├── n8n-templates/
-│   ├── document-indexer-local.json  # Workflow 1: Local drive indexing
-│   ├── qa-system-local.json         # Workflow 2: Q&A processing
-│   └── initialize-chromadb-local.json # Workflow 3: DB initialization
-├── test/
-│   └── qa-interface-local.html      # Web UI for testing
-├── README.md                        # This file
-└── SETUP_GUIDE.md                   # Detailed setup instructions
+# Create vector collection
+curl -X PUT "http://localhost:6333/collections/documents" \
+  -H "Content-Type: application/json" \
+  -d '{"vectors": {"size": 4096, "distance": "Cosine"}}'
 ```
 
-## 📁 Local Workshop Directory (Created by Scripts)
+## Workshop Steps
 
-```
-c:\dev\workshop\
-├── chromadb/
-│   └── data/           # Vector database storage
-├── n8n/
-│   ├── data/           # N8N configuration
-│   └── files/          # N8N file storage
-├── test/
-│   └── qa-interface-local.html  # Web UI for testing
-├── downloads/          # Temporary downloads
-└── models/            # Ollama model cache
-```
-
-## 🔧 Workshop Components
-
-### 1. **Ollama (Local LLM)**
-- **Model**: Llama 3.2 3B - Fast, efficient text generation
-- **Embeddings**: Nomic-embed-text - Document vectorization
-- **API**: Local REST API at `http://localhost:11434`
-
-### 2. **ChromaDB (Vector Database)**
-- **Version**: 0.6.1 (stable with v1 API)
-- **Purpose**: Stores document embeddings for semantic search
-- **Access**: REST API at `http://localhost:8000`
-- **API Version**: v1 endpoints (`/api/v1/`)
-- **Persistence**: Data saved in `chromadb/data/`
-
-### 3. **N8N (Workflow Automation)**
-- **Purpose**: Orchestrates the entire RAG pipeline
-- **Workflows**: Import from `/n8n-templates/` directory
-  - `document-indexer-local.json` - Scans and indexes local/mapped drives
-  - `qa-system-local.json` - Handles user queries
-  - `initialize-chromadb-local.json` - Database initialization
-
-### 4. **Local File System**
-- **G: Drive**: Mapped network drive or local folder
-- **File Types**: PDF, DOCX, TXT, MD files
-- **Permissions**: Read access to target folders
-- **No Authentication**: Direct file system access
-
-## 📚 N8N Workflow Templates
-
-### Importing Workflows
-
+### Step 1: Import the N8N Workflow
 1. Open N8N at http://localhost:5678
-2. Go to Workflows → Import from File
-3. Import templates in this order:
-   - `/n8n-templates/initialize-chromadb-local.json` (run once)
-   - `/n8n-templates/document-indexer-local.json`
-   - `/n8n-templates/qa-system-local.json`
+2. Go to **Workflows** → **Import from File**
+3. Upload the provided workflow JSON file
+4. You should see the complete RAG pipeline
 
-### Configuring the Indexer
+### Step 2: Configure Credentials
+Set up these credentials in N8N:
 
-1. Open the "Local Drive Document Indexer" workflow
-2. Edit the "Scan Local Files" node
-3. Modify the configuration:
-   ```javascript
-   const config = {
-     basePath: 'G:\\',  // Your drive or folder
-     subdirectories: [],  // Optional: specific folders like ['Policies', 'Procedures']
-     includePatterns: ['*.pdf', '*.docx', '*.txt', '*.md'],
-     maxFileSizeMB: 50
-   };
-   ```
-4. Save and activate the workflow
+**Ollama API Credential:**
+- Name: `Ollama account`
+- Base URL: `http://ollama:11434`
+- No authentication needed
 
-### Workflow 1: Document Indexing
+**Qdrant API Credential:**
+- Name: `QdrantApi account`  
+- Host: `qdrant`
+- Port: `6333`
+- API Key: (leave empty for local setup)
+
+### Step 3: Set Collection Name
+- In both Qdrant Vector Store nodes, set collection to: `local_docs`
+- This will be created automatically on first use
+
+### Step 4: Test with Sample Data
+1. **Copy test file**: Save the provided `dad-jokes.txt` to the `./files` directory
+2. **Activate workflow**: Toggle the workflow to "Active"
+3. **Process documents**: Click "Execute workflow" (manual trigger)
+4. **Wait for processing**: Watch the workflow execute and index the jokes
+
+### Step 5: Start Chatting
+1. Click the **"When chat message received"** node
+2. Use the chat interface to ask questions like:
+   - "Tell me a joke about animals"
+   - "What's funny about bicycles?"
+   - "Show me jokes with food"
+   - "Find a joke about the ocean"
+
+## Workshop Architecture
+
 ```
-Local File System → Read Files → Extract Text → Chunk Text → Generate Embeddings → Store in ChromaDB
-```
-
-### Workflow 2: Question Answering
-```
-User Question → Generate Embedding → Search ChromaDB → Retrieve Documents → Build Context → Generate Answer → Return Response
-```
-
-## 🎓 Workshop Agenda - 9 Sept 2025
-
-### Welcome & Introduction (10 min)
-- Oz' AI Workshop Series overview
-- Today's objectives
-- Architecture walkthrough
-
-### Module 1: Environment Setup (20 min)
-- Run installation scripts
-- Verify all services
-- Quick troubleshooting
-
-### Module 2: N8N Fundamentals (30 min)
-- N8N interface tour
-- Import workflow templates
-- Configure local drive paths
-- Test file access
-
-### Module 3: Document Processing Pipeline (30 min)
-- Understanding the indexing workflow
-- File scanning and filtering
-- Text extraction and chunking
-- Embedding generation with Ollama
-
-### Module 4: RAG Implementation (30 min)
-- Query processing workflow
-- Vector search mechanics
-- Context building and LLM integration
-
-### Break (10 min)
-
-### Module 5: Hands-On Practice (40 min)
-- Configure your local drive path
-- Index your own documents
-- Test various queries
-- Optimize retrieval parameters
-
-### Module 6: Advanced Topics (30 min)
-- Handling different file types
-- Metadata filtering
-- Performance optimization
-- Production considerations
-
-### Q&A & Wrap-up (20 min)
-- Open discussion
-- Resources for continued learning
-- Next workshop preview
-
-## 🛠️ Container Management
-
-### Using the Management Script
-```powershell
-# All commands use the script in /scripts/
-.\scripts\manage-containers.ps1 -Action [command]
-
-# Available commands:
-.\scripts\manage-containers.ps1 -Action start    # Start containers
-.\scripts\manage-containers.ps1 -Action stop     # Stop containers
-.\scripts\manage-containers.ps1 -Action restart  # Restart containers
-.\scripts\manage-containers.ps1 -Action status   # Check status
-.\scripts\manage-containers.ps1 -Action logs     # View logs
-.\scripts\manage-containers.ps1 -Action backup   # Backup data
+📁 Files Directory → 🔄 N8N Processing → 🗄️ Qdrant Storage → 💬 Chat Interface
+     ↓                    ↓                     ↓              ↓
+  Text Files         Extract & Chunk       Vector Storage    AI Responses
+   (*.txt)          Create Embeddings     Similarity Search  with Context
 ```
 
-## 📊 Testing Your System
+### Services Overview
 
-### 1. **Verify Services**
-```powershell
-# Check Ollama
-ollama list
+| Service | URL | Purpose | Port |
+|---------|-----|---------|------|
+| **N8N** | http://localhost:5678 | Workflow automation & Chat | 5678 |
+| **Qdrant** | http://localhost:6333 | Vector database | 6333 |
+| **Ollama** | http://localhost:11434 | Local LLM | 11434 |
 
-# Check ChromaDB
-curl http://localhost:8000/api/v1/heartbeat
+## Understanding the RAG Process
 
-# Check N8N
-curl http://localhost:5678
+### Document Processing Flow:
+1. **File Detection**: N8N watches for new files in `/files` directory
+2. **Format Validation**: Filters for supported types (PDF, TXT, DOC, etc.)
+3. **Content Extraction**: Reads and extracts text from documents
+4. **Text Chunking**: Splits content into manageable pieces
+5. **Embedding Generation**: Creates vector representations using Llama 3.2
+6. **Vector Storage**: Stores embeddings in Qdrant with metadata
 
-# Check local drive access
-Get-ChildItem "G:\" -File -Include *.pdf,*.docx,*.txt -Recurse | Select-Object -First 5
+### Chat Query Flow:
+1. **User Question**: Enter question in N8N chat interface
+2. **Query Embedding**: Convert question to vector representation
+3. **Similarity Search**: Find relevant document chunks in Qdrant
+4. **Context Assembly**: Gather matching content as context
+5. **AI Response**: Generate answer using Ollama with retrieved context
+6. **Source Attribution**: Show which documents informed the response
+
+## Workshop Exercises
+
+### Exercise 1: Basic RAG
+- Process the dad-jokes file
+- Ask for jokes by category
+- Notice how the AI finds relevant jokes
+
+### Exercise 2: Custom Documents
+- Add your own text files to `/files`
+- Process them through the workflow
+- Ask questions about your content
+
+### Exercise 3: Understanding Embeddings
+- Look at the Qdrant collection: http://localhost:6333/collections/local_docs
+- See how documents are stored as vectors
+- Experiment with different search queries
+
+### Exercise 4: Workflow Customization
+- Modify chunk sizes in the processing pipeline
+- Adjust similarity thresholds
+- Try different embedding models
+
+## Key Learning Points
+
+**Vector Embeddings**: How text becomes searchable mathematical representations  
+**Semantic Search**: Finding meaning, not just keywords  
+**Context Window**: How much information the AI uses to respond  
+**Local AI**: Running powerful models without cloud dependencies  
+**RAG vs Fine-tuning**: When to retrieve vs when to train  
+
+## Troubleshooting
+
+### Model Download Issues
+```bash
+# Check if model exists
+docker exec ollama ollama list
+
+# Manual download
+docker exec ollama ollama pull llama3.2:3b
 ```
 
-### 2. **Test Document Indexing**
-1. Open N8N workflow "Local Drive Document Indexer"
-2. Click "Execute Workflow" to run manually
-3. Check execution log for indexed files
-4. Verify documents stored in ChromaDB
+### Qdrant Connection Issues
+```bash
+# Check Qdrant status
+curl http://localhost:6333/collections
 
-### 3. **Test Q&A Interface**
-- Open `c:\dev\workshop\test\qa-interface-local.html` in browser
-- The interface shows service status for all components
-- Try sample questions:
-  - "What is our remote work policy?"
-  - "How do I submit an expense report?"
-  - "What are the company values?"
-
-### 4. **Sample Test Questions**
-- Policy Questions: "What is the vacation policy?"
-- Process Questions: "How do I request IT support?"
-- Information Queries: "Who is the HR contact?"
-- Document Search: "Find information about project deadlines"
-
-## 🔐 Security Considerations
-
-### Data Protection
-- ✅ All processing happens locally
-- ✅ No external API calls or cloud services
-- ✅ Direct file system access only
-- ✅ Data never leaves your network
-- ✅ Works within existing file permissions
-
-### Best Practices
-1. **File Access**: Only grant read access to necessary folders
-2. **Network Drives**: Use read-only mounts when possible
-3. **Audit Logging**: Track all queries and access
-4. **Data Retention**: Set policies for re-indexing
-5. **Container Security**: Keep images updated
-
-## 📈 Performance Optimization
-
-### File Scanning
-- **Selective Folders**: Index only relevant directories
-- **File Size Limits**: Skip very large files (>50MB)
-- **File Type Filtering**: Only index supported formats
-- **Incremental Updates**: Track modified dates
-
-### Processing Settings
-- **Chunk Size**: 1000 characters with 200 overlap
-- **Batch Processing**: 10 files at a time
-- **Embedding Cache**: Reuse embeddings for unchanged files
-- **Vector Search**: Top 5 results
-- **LLM Temperature**: 0.3 for factual responses
-
-## 🎯 Learning Objectives
-
-By the end of this workshop, participants will be able to:
-1. ✅ Build a complete RAG system using local files
-2. ✅ Configure N8N workflows for document processing
-3. ✅ Implement semantic search with vector databases
-4. ✅ Create intelligent Q&A systems with local LLMs
-5. ✅ Deploy production-ready workflow automation
-6. ✅ Ensure data security with 100% local processing
-
-## 🆚 Why Local File Indexing?
-
-### Advantages over Cloud APIs
-- **No Authentication Complexity**: Skip OAuth, tokens, and API setup
-- **Immediate Start**: Begin indexing right away
-- **Corporate Compliance**: Data never leaves your network
-- **Cost Effective**: No API rate limits or usage fees
-- **Full Control**: Complete ownership of your data pipeline
-- **Offline Capable**: Works without internet connection
-
-### Perfect for Corporate Environments
-- Works with existing network drives
-- Respects current file permissions
-- No cloud service agreements needed
-- IT department approved approach
-- Integrates with existing backup systems
-
-## 🙏 Acknowledgments
-
-- **Ollama** - Local LLM runtime
-- **N8N** - Workflow automation platform
-- **ChromaDB** - Vector database
-- **Llama 3.2** - Meta's language model
-
-## 📞 Workshop Support
-
-- **During Workshop**: Ask Oz directly
-- **Post-Workshop Issues**: Create an issue in this repository
-- **N8N Community**: https://community.n8n.io
-- **Ollama Support**: https://github.com/ollama/ollama
-- **ChromaDB Docs**: https://docs.trychroma.com
-
-## 📚 Additional Resources
-
-- [N8N Documentation](https://docs.n8n.io)
-- [Ollama Model Library](https://ollama.com/library)
-- [ChromaDB Documentation](https://docs.trychroma.com)
-- [RAG Techniques Guide](https://www.pinecone.io/learn/retrieval-augmented-generation/)
-
-## 🚨 Common Issues & Quick Fixes
-
-### Can't Access G: Drive
-```powershell
-# Verify drive is mapped
-Get-PSDrive G
-
-# Use alternative local folder
-.\scripts\setup-containers.ps1 -LocalDrivePath "C:\Documents"
+# Restart if needed
+docker-compose restart qdrant
 ```
 
-### Slow Indexing
-- Reduce file size limit in workflow
-- Index specific folders only
-- Use smaller chunk sizes
+### N8N Workflow Issues
+- Ensure workflow is **activated** (green toggle)
+- Check all **credentials are configured**
+- Verify **collection name** is `local_docs` in both vector nodes
+- Test individual nodes by clicking "Test step"
 
-### No Results from Q&A
-- Check if indexing completed successfully
-- Verify ChromaDB has documents
-- Try broader search terms
+### Performance Tips
+- **GPU Users**: Faster embedding generation and responses
+- **CPU Users**: Expect slower processing, but still functional
+- **Memory**: Each document chunk uses ~16KB of vector storage
+- **Scaling**: Can handle thousands of documents
+
+## Post-Workshop
+
+### What You've Built
+- A complete local RAG system
+- Document processing pipeline
+- Intelligent search capabilities
+- Conversational AI interface
+
+### Next Steps
+- Add more document types (PDFs, Word docs)
+- Experiment with different AI models
+- Scale to larger document collections
+- Integrate with other applications
+
+### Resources
+- N8N Documentation: https://docs.n8n.io
+- Qdrant Documentation: https://qdrant.tech/documentation
+- Ollama Models: https://ollama.ai/library
+- LangChain Integration: https://docs.n8n.io/integrations/builtin/cluster-nodes/sub-nodes/n8n-nodes-langchain/
+
+## Workshop Cleanup
+
+To stop and remove everything:
+```bash
+# Stop services
+docker-compose down
+
+# Remove volumes (optional - deletes all data)
+docker-compose down -v
+```
 
 ---
 
-### 🚀 Oz' AI Workshop Series
+**Workshop Leader**: Oz  
+**Date**: September 10th, 2025  
+**Duration**: ~2 hours  
+**Difficulty**: Intermediate  
 
-This workshop is part of Oz' AI Workshop Series, bringing practical AI implementations to enterprise environments with a focus on security and local processing.
-
-**Workshop Focus**: Building production-ready RAG systems without cloud dependencies
-
-**Next Workshop**: Advanced N8N Automations with Multi-Agent Systems
-
----
-
-**Ready to start?** Follow the [Setup Guide](SETUP_GUIDE.md) or run `.\scripts\install-prerequisites.ps1` to begin! 🚀
-
-**No authentication needed - just point to your files and start building!**
+*Questions? Ask during the workshop or reach out afterward!*

@@ -1,1 +1,0 @@
-Invoke-Expression %AppData%\Local\Programs\Python\Python312\python.exe -m http.server 3000
