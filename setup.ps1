@@ -72,8 +72,8 @@ try {
 }
 
 # Wait for services to be ready
-Write-Host "Waiting for services to start (30 seconds)..." -ForegroundColor Yellow
-Start-Sleep -Seconds 30
+Write-Host "Waiting for services to start (20 seconds)..." -ForegroundColor Yellow
+Start-Sleep -Seconds 20
 
 # Check service health
 Write-Host "Checking service health..." -ForegroundColor Yellow

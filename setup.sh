@@ -8,7 +8,6 @@ mkdir -p files
 mkdir -p data/supabase
 mkdir -p data/n8n
 mkdir -p data/ollama
-mkdir -p data/open-webui
 
 # Set proper permissions
 echo "Setting permissions..."
@@ -21,7 +20,7 @@ docker-compose up -d
 
 # Wait for services to be ready
 echo "Waiting for services to start..."
-sleep 30
+sleep 20
 
 # Pull Ollama model
 echo "Pulling Llama 3.2:3b model..."
